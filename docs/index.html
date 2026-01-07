@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tachyon-Tex | Sub-Second LaTeX Compilation</title>
+    <meta name="description"
+        content="Ultra-fast, Zero-I/O LaTeX Compilation Server. Achieving sub-second performance using Rust & Tectonic.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --bg: #030712;
+            --card-bg: #111827;
+            --accent: #3b82f6;
+            --accent-glow: rgba(59, 130, 246, 0.5);
+            --text-primary: #f9fafb;
+            --text-secondary: #9ca3af;
+            --code-bg: #1f2937;
+            --success: #10b981;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
+
+        /* Hero Section */
+        header {
+            height: 80vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            background: radial-gradient(circle at center, #1e293b 0%, #030712 70%);
+            position: relative;
+        }
+
+        header::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 200px;
+            background: linear-gradient(to top, var(--bg), transparent);
+        }
+
+        h1 {
+            font-size: 5rem;
+            font-weight: 800;
+            letter-spacing: -0.05em;
+            background: linear-gradient(to right, #60a5fa, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+            filter: drop-shadow(0 0 20px var(--accent-glow));
+        }
+
+        .tagline {
+            font-size: 1.5rem;
+            color: var(--text-secondary);
+            font-weight: 300;
+            max-width: 600px;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-top: -100px;
+            position: relative;
+            z-index: 10;
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            padding: 2rem;
+            border-radius: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            text-align: center;
+            transition: transform 0.3s ease, border-color 0.3s ease;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            border-color: var(--accent);
+        }
+
+        .stat-value {
+            display: block;
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+
+        /* Sections */
+        section {
+            padding: 8rem 0;
+        }
+
+        h2 {
+            font-size: 2.5rem;
+            margin-bottom: 3rem;
+            text-align: center;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            align-items: center;
+        }
+
+        .feature-list {
+            list-style: none;
+        }
+
+        .feature-item {
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 1rem;
+        }
+
+        .feature-icon {
+            color: var(--accent);
+            font-weight: 800;
+        }
+
+        .feature-item h3 {
+            font-size: 1.25rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .feature-item p {
+            color: var(--text-secondary);
+        }
+
+        /* Benchmarks Table */
+        .bench-container {
+            background: var(--card-bg);
+            border-radius: 1.5rem;
+            padding: 2rem;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            padding: 1rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        td {
+            padding: 1.5rem 1rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .highlight-time {
+            color: var(--success);
+            font-weight: 600;
+        }
+
+        /* Code Block */
+        .code-block {
+            background: var(--code-bg);
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            position: relative;
+            margin: 2rem 0;
+            border-left: 4px solid var(--accent);
+        }
+
+        .code-block pre {
+            color: #d1d5db;
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            margin-top: 3rem;
+        }
+
+        .btn {
+            padding: 1rem 2.5rem;
+            border-radius: 0.5rem;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            filter: brightness(1.2);
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+
+        .btn-secondary {
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        footer {
+            padding: 4rem 0;
+            text-align: center;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 3rem;
+            }
+
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+
+            .stats-grid {
+                margin-top: 0;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <header>
+        <div class="container">
+            <h1>Tachyon-Tex</h1>
+            <p class="tagline">The ephemeral, zero-disk, sub-second LaTeX engine powered by Rust.</p>
+            <div class="btn-group">
+                <a href="https://github.com/srsergio/tachyon-tex" class="btn btn-primary">View on GitHub</a>
+                <a href="#quickstart" class="btn btn-secondary">Quick Start</a>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <span class="stat-value">447ms</span>
+                <span class="stat-label">Simple Doc</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">857ms</span>
+                <span class="stat-label">TikZ Graphics</span>
+            </div>
+            <div class="stat-card">
+                <span class="stat-value">1.4s</span>
+                <span class="stat-label">IEEE Multi-file</span>
+            </div>
+        </div>
+
+        <section id="philosophy">
+            <div class="grid-2">
+                <div>
+                    <h2>Moonshot Performance</h2>
+                    <p style="color: var(--text-secondary); margin-bottom: 2rem;">We identified that the primary
+                        bottleneck in LaTeX compilation is the System Call Barrier. Tachyon-Tex bypasses it completely.
+                    </p>
+                    <ul class="feature-list">
+                        <li class="feature-item">
+                            <span class="feature-icon">01</span>
+                            <div>
+                                <h3>Embedded Engine</h3>
+                                <p>Standard compilers spawn multiple OS processes. We embed the Tectonic engine as a
+                                    native library.</p>
+                            </div>
+                        </li>
+                        <li class="feature-item">
+                            <span class="feature-icon">02</span>
+                            <div>
+                                <h3>Zero-Disk Latency</h3>
+                                <p>All operations happen in RAM. The .tex input and .pdf output never touch the SSD.</p>
+                            </div>
+                        </li>
+                        <li class="feature-item">
+                            <span class="feature-icon">03</span>
+                            <div>
+                                <h3>Warm Cache</h3>
+                                <p>The Docker image is pre-loaded with common libraries, eliminating cold-start latency.
+                                </p>
+                            </div>
+                        </li>
+                    </ul>
+                </div>
+                <div class="bench-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Test Case</th>
+                                <th>Engine</th>
+                                <th>Speedup</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Simple Article</td>
+                                <td class="highlight-time">417ms</td>
+                                <td>10x Faster</td>
+                            </tr>
+                            <tr>
+                                <td>TikZ Graphics</td>
+                                <td class="highlight-time">857ms</td>
+                                <td>6x Faster</td>
+                            </tr>
+                            <tr>
+                                <td>IEEE Conf. Paper</td>
+                                <td class="highlight-time">1.4s</td>
+                                <td>4x Faster</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+
+        <section id="quickstart">
+            <h2 style="text-align: left;">Quick Start</h2>
+            <p style="color: var(--text-secondary);">Launch the engine in seconds using Docker.</p>
+            <div class="code-block">
+                <pre>docker pull srsergio/tachyon-tex:latest
+docker run -p 8080:8080 srsergio/tachyon-tex</pre>
+            </div>
+            <p style="color: var(--text-secondary);">Then send your project ZIP via CLI or use the Web UI.</p>
+            <div class="code-block">
+                <pre>curl -X POST -F "file=@project.zip" http://localhost:8080/compile -o out.pdf</pre>
+            </div>
+        </section>
+    </div>
+
+    <footer>
+        <div class="container">
+            <p>Tachyon-Tex &copy; 2026. Experimental Researcher Edition.</p>
+            <p>Created by srsergio | Built with Rust 🦀 & Tectonic 🚀</p>
+        </div>
+    </footer>
+
+</body>
+
+</html>
