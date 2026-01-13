@@ -3,8 +3,9 @@ version: "3.8"
 services:
   tachyon-tex:
     image: srsergio/tachyon-tex:latest
-    ports:
-      - "8080:8080"
+    # Let Coolify handle port routing - only expose internal port
+    expose:
+      - "8080"
     # RAM Disk for ultra-fast Zero-I/O compilation
     tmpfs:
       - /dev/shm:rw,size=512m
