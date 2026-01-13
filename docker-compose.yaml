@@ -5,7 +5,7 @@ services:
     image: srsergio/tachyon-tex:latest
     container_name: tachyon-tex
     ports:
-      - "8080:8080"
+      - "80:8080"
     # RAM Disk for ultra-fast Zero-I/O compilation
     tmpfs:
       - /dev/shm:rw,size=512m
