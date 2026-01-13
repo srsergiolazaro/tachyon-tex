@@ -405,12 +405,12 @@ async fn compile_handler(mut multipart: Multipart) -> impl IntoResponse {
 
     let duration = start.elapsed();
 
-    match result {
+    let response = match result {
         Ok(output) => {
             if output.status.success() {
                 info!("Compiled in {:?}", duration);
                 
-                let pdf_name = main_tex_path.file_stem().unwrap().to_str().unwrap();
+                let pdf_name = main_tex_path.file_stem().expect("Failed to get file stem").to_str().unwrap();
                 let pdf_path = temp_dir.path().join(format!("{}.pdf", pdf_name));
                 
                 match fs::read(&pdf_path) {
@@ -457,7 +457,15 @@ async fn compile_handler(mut multipart: Multipart) -> impl IntoResponse {
                 }
             }
         }
-    }
+    };
+
+    // Explicitly drop the temp_dir to ensure it's deleted before sending the response
+    // Although Rust does this automatically, this makes it deterministic and safe.
+    let path = temp_dir.path().to_path_buf();
+    drop(temp_dir);
+    info!("🧹 Cleaned up temporary directory: {:?}", path);
+
+    response
 }
 
 // ============================================================================

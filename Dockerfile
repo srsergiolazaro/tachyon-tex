@@ -31,7 +31,7 @@ RUN cargo install tectonic --version 0.15.0 --features external-harfbuzz
 
 # 3. Build the server
 COPY . .
-RUN cargo build --release
+RUN touch src/main.rs && cargo build --release
 
 # 4. Warmup
 RUN mkdir -p /root/.cache/Tectonic && \
@@ -39,16 +39,17 @@ RUN mkdir -p /root/.cache/Tectonic && \
     ./target/release/tachyon-tex --warmup || true
 
 # --- STAGE 2: Final Image ---
-FROM debian:bookworm
+FROM debian:bookworm-slim
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     libfontconfig1 \
     libharfbuzz0b \
     libicu72 \
     libssl3 \
     libgraphite2-3 \
     ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/*
 
 WORKDIR /app
 
