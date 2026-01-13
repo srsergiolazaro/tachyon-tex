@@ -12,8 +12,8 @@
 docker pull srsergio/tachyon-tex
 docker run -p 8080:8080 srsergio/tachyon-tex
 
-# Open in browser
-# http://localhost:8080
+# Or use Docker Compose (recommended for RAM-disk optimization)
+docker-compose up -d
 ```
 
 ## 📊 Real Benchmark Results

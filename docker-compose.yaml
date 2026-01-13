@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  tachyon-tex:
+    image: srsergio/tachyon-tex:latest
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tachyon-tex
+    ports:
+      - "8080:8080"
+    # RAM Disk for ultra-fast Zero-I/O compilation
+    tmpfs:
+      - /dev/shm:rw,size=512m
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
