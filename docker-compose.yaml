@@ -3,12 +3,16 @@ version: "3.8"
 services:
   tachyon-tex:
     image: srsergio/tachyon-tex:latest
-    # Port 8080 is exposed internally - Coolify will handle the public routing
+    # Port is exposed internally - Coolify will handle the public routing
     expose:
-      - "8080"
+      - "${SERVICE_FQDN_TACHYONTEX_8080:-8080}"
+    ports:
+      - "${TACHYON_PORT:-8080}:8080"
     # RAM Disk for ultra-fast Zero-I/O compilation
     tmpfs:
-      - /dev/shm:rw,size=512m
+      - /dev/shm:rw,size=${TMPFS_SIZE:-512m}
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
     restart: unless-stopped
     logging:
       driver: "json-file"
