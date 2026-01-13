@@ -5,7 +5,7 @@ services:
     image: srsergio/tachyon-tex:latest
     # Let Coolify handle port routing - only expose internal port
     expose:
-      - "8080"
+      - "127.0.0.1:8080:8080"
     # RAM Disk for ultra-fast Zero-I/O compilation
     tmpfs:
       - /dev/shm:rw,size=512m
