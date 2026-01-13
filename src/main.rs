@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Multipart, DefaultBodyLimit},
+    extract::{Multipart, DefaultBodyLimit, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response, Html, Json},
     routing::{get, post},
@@ -9,10 +9,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH, Duration};
+use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use tracing::{info, error};
+use tracing::{info, error, warn, debug};
 use tempfile::TempDir;
 use std::fs;
+use xxhash_rust::xxh64::xxh64;
 
 // ============================================================================
 // Data Structures
@@ -44,6 +48,161 @@ struct PackageInfo {
 struct PackagesResponse {
     count: usize,
     packages: Vec<PackageInfo>,
+}
+
+// ============================================================================
+// Compilation Cache System (24h TTL)
+// Caches compiled PDFs by xxHash64 of input files to avoid re-compilation
+// ============================================================================
+
+const CACHE_TTL_SECS: u64 = 24 * 60 * 60; // 24 hours
+const CACHE_CLEANUP_INTERVAL_SECS: u64 = 60 * 60; // 1 hour
+
+#[derive(Clone, Serialize, Deserialize)]
+struct CacheEntry {
+    hash: u64,
+    filename: String,
+    created_at: u64, // Unix timestamp
+    compile_time_ms: u64, // Original compilation time
+}
+
+#[derive(Clone)]
+struct CompilationCache {
+    enabled: bool,
+    cache_dir: PathBuf,
+    entries: Arc<RwLock<HashMap<u64, CacheEntry>>>,
+}
+
+impl CompilationCache {
+    fn new(enabled: bool) -> Self {
+        let cache_dir = PathBuf::from("/tmp/tachyon-pdf-cache");
+        if enabled {
+            fs::create_dir_all(&cache_dir).ok();
+        }
+        Self {
+            enabled,
+            cache_dir,
+            entries: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Compute xxHash64 of all input data (for cache key)
+    fn hash_input(data: &[u8]) -> u64 {
+        xxh64(data, 0)
+    }
+
+    /// Check if compiled PDF exists in cache and is not expired
+    async fn get_pdf(&self, hash: u64) -> Option<(Vec<u8>, u64)> {
+        if !self.enabled {
+            return None;
+        }
+
+        let entries = self.entries.read().await;
+        if let Some(entry) = entries.get(&hash) {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            
+            if now - entry.created_at < CACHE_TTL_SECS {
+                let path = self.cache_dir.join(&entry.filename);
+                if let Ok(data) = fs::read(&path) {
+                    info!("⚡ Cache HIT! Returning cached PDF (hash {:016x})", hash);
+                    return Some((data, entry.compile_time_ms));
+                }
+            }
+        }
+        None
+    }
+
+    /// Store compiled PDF in cache
+    async fn put_pdf(&self, hash: u64, pdf_data: &[u8], compile_time_ms: u64) {
+        if !self.enabled {
+            return;
+        }
+
+        let cache_filename = format!("{:016x}.pdf", hash);
+        let path = self.cache_dir.join(&cache_filename);
+        
+        if fs::write(&path, pdf_data).is_ok() {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+            
+            let entry = CacheEntry {
+                hash,
+                filename: cache_filename,
+                created_at: now,
+                compile_time_ms,
+            };
+            
+            let mut entries = self.entries.write().await;
+            entries.insert(hash, entry);
+            info!("💾 Cache STORE: PDF cached (hash {:016x}, {}KB)", hash, pdf_data.len() / 1024);
+        }
+    }
+
+    /// Remove expired entries (called by cleanup task)
+    async fn cleanup_expired(&self) -> usize {
+        if !self.enabled {
+            return 0;
+        }
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        
+        let mut entries = self.entries.write().await;
+        let expired: Vec<u64> = entries
+            .iter()
+            .filter(|(_, e)| now - e.created_at >= CACHE_TTL_SECS)
+            .map(|(k, _)| *k)
+            .collect();
+        
+        let count = expired.len();
+        for hash in expired {
+            if let Some(entry) = entries.remove(&hash) {
+                let path = self.cache_dir.join(&entry.filename);
+                fs::remove_file(&path).ok();
+            }
+        }
+        count
+    }
+
+    /// Get cache statistics
+    async fn stats(&self) -> (usize, u64) {
+        let entries = self.entries.read().await;
+        let count = entries.len();
+        let total_size: u64 = entries
+            .values()
+            .filter_map(|e| fs::metadata(self.cache_dir.join(&e.filename)).ok())
+            .map(|m| m.len())
+            .sum();
+        (count, total_size)
+    }
+}
+
+/// Background task to clean up expired cache entries every hour
+async fn cache_cleanup_task(cache: CompilationCache) {
+    loop {
+        tokio::time::sleep(Duration::from_secs(CACHE_CLEANUP_INTERVAL_SECS)).await;
+        let removed = cache.cleanup_expired().await;
+        if removed > 0 {
+            info!("🧹 Cache cleanup: removed {} expired entries", removed);
+        }
+        let (count, size) = cache.stats().await;
+        if count > 0 {
+            info!("📊 Cache stats: {} PDFs cached, {:.2} MB total", count, size as f64 / 1024.0 / 1024.0);
+        }
+    }
+}
+
+// App state shared across handlers
+#[derive(Clone)]
+struct AppState {
+    compilation_cache: CompilationCache,
 }
 
 // ============================================================================
@@ -281,14 +440,14 @@ async fn validate_handler(mut multipart: Multipart) -> impl IntoResponse {
 }
 
 /// POST /compile - Compile LaTeX to PDF (supports ZIP or multiple files)
-async fn compile_handler(mut multipart: Multipart) -> impl IntoResponse {
-    let temp_dir = match TempDir::new() {
-        Ok(d) => d,
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create temp dir: {}", e)).into_response(),
-    };
-
-    let mut has_zip = false;
-    let mut files_received = 0;
+/// Now with PDF caching: if the same input is compiled twice, returns cached result
+async fn compile_handler(
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> impl IntoResponse {
+    // Collect all input data for hashing
+    let mut all_input_data: Vec<u8> = Vec::new();
+    let mut files_data: Vec<(String, Vec<u8>)> = Vec::new();
 
     while let Some(field) = multipart.next_field().await.unwrap_or(None) {
         let filename = field.file_name().unwrap_or("").to_string();
@@ -297,10 +456,44 @@ async fn compile_handler(mut multipart: Multipart) -> impl IntoResponse {
         if data.is_empty() {
             continue;
         }
+        
+        // Add to hash input: filename + data
+        all_input_data.extend(filename.as_bytes());
+        all_input_data.extend(&data);
+        files_data.push((filename, data));
+    }
 
+    if files_data.is_empty() {
+        return (StatusCode::BAD_REQUEST, "No files provided. Send a ZIP or multiple files via multipart/form-data").into_response();
+    }
+
+    // Calculate hash of all input data
+    let input_hash = CompilationCache::hash_input(&all_input_data);
+
+    // Check cache first
+    if let Some((cached_pdf, original_compile_time)) = state.compilation_cache.get_pdf(input_hash).await {
+        return Response::builder()
+            .status(StatusCode::OK)
+            .header(header::CONTENT_TYPE, "application/pdf")
+            .header("X-Compile-Time-Ms", "0")
+            .header("X-Original-Compile-Time-Ms", original_compile_time.to_string())
+            .header("X-Cache", "HIT")
+            .header("X-Files-Received", files_data.len().to_string())
+            .body(axum::body::Body::from(cached_pdf))
+            .unwrap();
+    }
+
+    // Cache miss - need to compile
+    let temp_dir = match TempDir::new() {
+        Ok(d) => d,
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create temp dir: {}", e)).into_response(),
+    };
+
+    let mut files_received = 0;
+
+    for (filename, data) in files_data {
         // Check if it's a ZIP file
         if filename.ends_with(".zip") || (data.len() > 4 && &data[0..4] == b"PK\x03\x04") {
-            has_zip = true;
             let reader = Cursor::new(data);
             let mut archive = match zip::ZipArchive::new(reader) {
                 Ok(a) => a,
@@ -404,6 +597,7 @@ async fn compile_handler(mut multipart: Multipart) -> impl IntoResponse {
         .output();
 
     let duration = start.elapsed();
+    let compile_time_ms = duration.as_millis() as u64;
 
     let response = match result {
         Ok(output) => {
@@ -415,10 +609,14 @@ async fn compile_handler(mut multipart: Multipart) -> impl IntoResponse {
                 
                 match fs::read(&pdf_path) {
                     Ok(pdf_data) => {
+                        // Store in cache for future requests
+                        state.compilation_cache.put_pdf(input_hash, &pdf_data, compile_time_ms).await;
+                        
                         Response::builder()
                             .status(StatusCode::OK)
                             .header(header::CONTENT_TYPE, "application/pdf")
-                            .header("X-Compile-Time-Ms", duration.as_millis().to_string())
+                            .header("X-Compile-Time-Ms", compile_time_ms.to_string())
+                            .header("X-Cache", "MISS")
                             .header("X-Files-Received", files_received.to_string())
                             .body(axum::body::Body::from(pdf_data))
                             .unwrap()
@@ -443,11 +641,17 @@ async fn compile_handler(mut multipart: Multipart) -> impl IntoResponse {
             match tectonic::latex_to_pdf(&tex_content) {
                 Ok(pdf_data) => {
                     let duration = start.elapsed();
+                    let compile_time_ms = duration.as_millis() as u64;
                     info!("Compiled in {:?}", duration);
+                    
+                    // Store in cache
+                    state.compilation_cache.put_pdf(input_hash, &pdf_data, compile_time_ms).await;
+                    
                     Response::builder()
                         .status(StatusCode::OK)
                         .header(header::CONTENT_TYPE, "application/pdf")
-                        .header("X-Compile-Time-Ms", duration.as_millis().to_string())
+                        .header("X-Compile-Time-Ms", compile_time_ms.to_string())
+                        .header("X-Cache", "MISS")
                         .body(axum::body::Body::from(pdf_data))
                         .unwrap()
                 }
@@ -460,7 +664,6 @@ async fn compile_handler(mut multipart: Multipart) -> impl IntoResponse {
     };
 
     // Explicitly drop the temp_dir to ensure it's deleted before sending the response
-    // Although Rust does this automatically, this makes it deterministic and safe.
     let path = temp_dir.path().to_path_buf();
     drop(temp_dir);
     info!("🧹 Cleaned up temporary directory: {:?}", path);
@@ -490,11 +693,32 @@ async fn main() {
         return;
     }
 
+    // Initialize PDF compilation cache based on environment variable
+    let cache_enabled = std::env::var("PDF_CACHE_ENABLED")
+        .map(|v| v.to_lowercase() == "true" || v == "1")
+        .unwrap_or(false);
+    
+    let compilation_cache = CompilationCache::new(cache_enabled);
+    
+    if cache_enabled {
+        info!("📦 PDF cache ENABLED (TTL: 24h, cleanup: every 1h)");
+        // Spawn background cleanup task
+        let cache_clone = compilation_cache.clone();
+        tokio::spawn(async move {
+            cache_cleanup_task(cache_clone).await;
+        });
+    } else {
+        info!("📦 PDF cache DISABLED (set PDF_CACHE_ENABLED=true to enable)");
+    }
+
+    let state = AppState { compilation_cache };
+
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/compile", post(compile_handler))
         .route("/validate", post(validate_handler))
         .route("/packages", get(packages_handler))
+        .with_state(state)
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
         .layer(CorsLayer::permissive());
 

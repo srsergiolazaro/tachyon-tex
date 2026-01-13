@@ -11,6 +11,8 @@ services:
       - /dev/shm:rw,size=512m
     environment:
       - RUST_LOG=info
+      # Set to "true" to enable PDF compilation caching (24h TTL)
+      - PDF_CACHE_ENABLED=true
     restart: unless-stopped
     logging:
       driver: "json-file"

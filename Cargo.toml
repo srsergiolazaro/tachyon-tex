@@ -18,6 +18,7 @@ bytes = "1.5"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 regex = "1.10"
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
 
 [profile.release]
 opt-level = 3       # Max performance (Speed)

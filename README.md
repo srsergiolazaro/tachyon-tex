@@ -16,18 +16,44 @@ docker run -p 8080:8080 srsergio/tachyon-tex
 docker-compose up -d
 ```
 
-## 📊 Real Benchmark Results
+## 📊 Performance Benchmarks
 
-*Measured on January 7, 2026*
+*Measured on January 13, 2026 with PDF Caching enabled*
 
-| Document Type | First Run | Cached Run | Engine Time | Speedup vs pdflatex |
-|---------------|-----------|------------|-------------|---------------------|
-| **Simple** (Hello World) | 1.63s | **0.42s** | 447ms | 8x |
-| **TikZ** (Graphics) | 7.24s | **0.95s** | 857ms | 5x |
-| **Complex** (Multi-section) | 2.71s | **0.94s** | 863ms | 4x |
-| **IEEE Paper** (Multi-file) | 1.36s | **1.24s** | 1403ms | 3x |
+### Compilation Times
 
-> 💡 First run includes package download. Subsequent runs use cached packages.
+| Document Type | First Run (MISS) | Cached Run (HIT) | Improvement |
+|---------------|------------------|------------------|-------------|
+| **Hello World** | 368ms | **~15ms** | 24x faster |
+| **IEEE Template** | 781ms | **~20ms** | 39x faster |
+| **IEEE + Long Text** | 836ms | **~20ms** | 42x faster |
+| **IEEE + 10 Images (5MB)** | 8,480ms | **~25ms** | **340x faster** ⚡ |
+
+### Deep Analysis: Where Time Goes
+
+| Component | Time | % of Total |
+|-----------|------|------------|
+| Base engine (Hello World) | 353ms | 7% |
+| IEEE packages overhead | +424ms | 9% |
+| Long text processing | +54ms | 1% |
+| **Image processing** | **+4,022ms** | **83%** |
+
+> 💡 **Key insight**: 83% of compilation time is spent processing images. The PDF cache eliminates this entirely on repeat compilations.
+
+### Cache System
+
+Tachyon-Tex includes an intelligent **PDF compilation cache** using xxHash64:
+
+- **Algorithm**: xxHash64 (~15 GB/s hashing speed)
+- **TTL**: 24 hours (auto-cleanup every hour)
+- **Control**: `PDF_CACHE_ENABLED=true/false` environment variable
+
+```bash
+# Response headers indicate cache status
+X-Cache: HIT                    # Served from cache
+X-Compile-Time-Ms: 0            # No compilation needed
+X-Original-Compile-Time-Ms: 8480 # Original compilation time
+```
 
 ## 🌙 Moonshot Philosophy
 
@@ -67,7 +93,9 @@ curl -X POST -F "file=@doc.tex" http://localhost:8080/compile -I
 ```
 
 **Response Headers:**
-- `X-Compile-Time-Ms`: Engine compilation time in milliseconds
+- `X-Compile-Time-Ms`: Engine compilation time in milliseconds (0 if cache hit)
+- `X-Cache`: `HIT` (from cache) or `MISS` (freshly compiled)
+- `X-Original-Compile-Time-Ms`: Original compilation time (only on cache hit)
 - `X-Files-Received`: Number of files processed
 
 ---

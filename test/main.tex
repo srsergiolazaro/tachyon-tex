@@ -1,17 +1,265 @@
-\documentclass{article}
-\usepackage{amsmath}
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{hyperref}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,      
+    urlcolor=cyan,
+    citecolor=blue,
+}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
 \begin{document}
-\title{Tachyon-Tex Test}
-\author{Moonshot Engine}
+
+\title{Pure JavaScript Implementation for Scale-Invariant Feature Extraction in Image-Based Augmented Reality Systems Without TensorFlow}
+
+\author{\IEEEauthorblockN{1\textsuperscript{st} Author}
+\IEEEauthorblockA{\textit{Professional Academic School of ...} \\
+\textit{Faculty of ..., University ...}\\
+Huancayo, Peru \\
+76521309@continental.edu.pe}
+\and
+\IEEEauthorblockN{2\textsuperscript{nd} Author}
+\IEEEauthorblockA{\textit{Professional Academic School of ...} \\
+\textit{Faculty of ..., University ...}\\
+Huancayo, Peru \\
+76521309@continental.edu.pe}
+}
+
 \maketitle
 
-Hello, World! This is a test of the \textbf{Tachyon-Tex} engine.
+\begin{abstract}
+This study proposes the design and implementation of an Image-Based Augmented Reality system developed entirely in pure JavaScript, aimed at reducing computational overhead and improving performance in web environments by eliminating dependencies on deep learning frameworks such as TensorFlow.js. Following a quantitative, applied, and experimental approach, the system integrates an offline visual target compiler and a real-time detection and tracking engine optimized for efficient CPU execution. Experimental validation was conducted through 45 controlled executions, comparing two scenarios: before and after implementation of the proposed system. Results showed a significant reduction in visual target compilation time, with an average decrease of 1.37 seconds ($p < 0.001$), as well as a substantial improvement in initial detection latency, with an average reduction of 68.7 milliseconds ($p < 0.001$). Both metrics exhibited normal distribution, verified through Shapiro--Wilk and Kolmogorov--Smirnov tests, and statistically significant differences confirmed through paired Student's t-test. These findings demonstrate the effectiveness of the proposed system in optimizing critical performance metrics for Image-Based Augmented Reality applications. Consequently, the pure JavaScript approach presents itself as a lightweight, efficient, and scalable solution for WebAR systems, improving cross-platform compatibility and reducing latency without requiring GPU acceleration.
+\end{abstract}
 
-Here is some math: $E = mc^2$
+\begin{IEEEkeywords}
+Image-Based Augmented Reality, WebAR, pure JavaScript, feature extraction, visual detection and tracking, TensorFlow-free systems, CPU processing, offline visual target compilation, detection latency, computer vision, interactive web applications, cross-platform systems.
+\end{IEEEkeywords}
 
-And an equation:
-\begin{equation}
-\int_0^\infty e^{-x^2} dx = \frac{\sqrt{\pi}}{2}
-\end{equation}
+% CCS Concepts
+\noindent\textbf{CCS Concepts:} $\bullet$ Applied computing $\rightarrow$ Computer vision $\rightarrow$ Augmented reality $\rightarrow$ Web-based systems $\bullet$ Human-centered computing $\rightarrow$ Ubiquitous and mobile computing $\bullet$ Image processing $\bullet$ Software and its engineering $\rightarrow$ Software design engineering
+
+\section{Introduction}
+Image-Based Augmented Reality has become a relevant technology for the development of interactive applications in web environments, as it enables overlaying digital information onto real-world objects through computer vision techniques. In such systems, detection and tracking of visual targets directly depend on efficient extraction of scale-invariant and rotation-invariant features. Among the most widely used algorithms for this purpose are SIFT, SURF, and ORB, which enable extraction of robust local descriptors extensively employed in image recognition and computer vision applications \cite{b1}. These methods have demonstrated efficient detection and tracking in Augmented Reality systems, even under significant scale and rotation variations, as evidenced in various comparative experimental studies \cite{b2}.
+
+However, many current Image-Based Augmented Reality implementations depend on deep learning frameworks and GPU-accelerated tensor operations, which increase system complexity, computational resource consumption, and initialization times, while also generating compatibility restrictions in web and server environments. Various studies indicate that deep learning frameworks applied to WebAR require high computational power, which degrades browser performance due to rendering limitations and inefficiencies of certain web platforms \cite{b3}. Similarly, dependence on GPU acceleration and tensor operations in Image-Based Augmented Reality systems elevates initialization times and restricts cross-platform compatibility, negatively affecting their deployment in heterogeneous web environments \cite{b4}.
+
+Addressing these limitations, this work proposes the design and implementation of an Image-Based Augmented Reality system developed entirely in pure JavaScript, eliminating the dependency on TensorFlow.js for visual feature extraction and tracking. This approach avoids heavyweight frameworks and leverages traditional computer vision algorithms optimized for efficient CPU execution, maintaining competitive performance in visual feature detection \cite{b3}. The system additionally incorporates an offline visual target compiler and a real-time detection and tracking engine optimized for CPU, contributing to latency reduction and improved cross-platform compatibility in web environments, even in the absence of GPU acceleration \cite{b5}. Finally, the proposed system is validated through a controlled experimental evaluation, analyzing key performance metrics such as visual target compilation time and initial detection latency, in order to quantify the real impact of eliminating deep learning-based dependencies. This approach demonstrates that computational overhead reduction and CPU processing optimization lead to significant improvements in overall system performance. Various studies have shown that measuring these metrics is fundamental for comparing lightweight approaches versus resource-intensive methods, confirming the superiority of solutions optimized for web environments \cite{b3}. Likewise, the comparative results obtained support that pure JavaScript implementations achieve lower latencies and greater cross-platform compatibility in Image-Based Augmented Reality systems, in contrast to GPU-dependent frameworks \cite{b4}. In this regard, previous experimental validations highlight that sustained improvements in performance metrics position CPU-only systems as viable, efficient, and scalable alternatives for lightweight and universal WebAR applications \cite{b6}.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{fig_general.png}}
+\caption{General architecture of the Image-Based Augmented Reality system using pure JavaScript and CPU processing.}
+\label{fig_general}
+\end{figure}
+
+\section{Methodology}
+The study followed an applied research approach, oriented toward the design, development, and validation of an Image-Based Augmented Reality system that dispenses with the use of deep learning frameworks, specifically TensorFlow.js, for visual feature extraction and tracking. The main objective was to optimize computational performance, reduce initialization latency, and improve cross-platform compatibility in Augmented Reality applications executed in web and server environments.
+
+The proposed model integrates as fundamental components the technical analysis of Image-Based Augmented Reality systems, the design of a scale-invariant feature extraction model implemented in pure JavaScript, and the experimental evaluation of the developed system's performance. The methodological process began with the identification of limitations associated with traditional implementations that depend on GPU-accelerated tensor operations, such as computational overhead, increased system size, and execution restrictions in resource-limited environments.
+
+Subsequently, an alternative computational model was designed for visual feature detection and description, employing classical computer vision techniques optimized for efficient CPU execution. Based on this design, an offline compiler was implemented to process target images and generate compact binary representations, intended for use during the real-time execution phase. This compiler was developed entirely in pure JavaScript, enabling its execution in Node.js environments, browsers, and Web Workers.
+
+Next, the real-time detection and tracking engine was developed, responsible for processing video streams, performing feature matching, and estimating the spatial transformation of detected targets. This engine incorporated temporal filtering and loss tolerance mechanisms to ensure stability and precision during tracking, without resorting to GPU acceleration. The system was integrated and validated in different execution environments, evaluating its correct functionality, portability, and robustness in heterogeneous scenarios.
+
+Finally, system performance evaluation and validation was conducted through controlled experimental tests. Quantitative metrics were analyzed, including compilation time, initial detection latency, total tracking pipeline time, generated file sizes, and detection success rate under scale and rotation variations. The results obtained were compared with traditional TensorFlow.js-based approaches, in order to determine the effectiveness of the proposed model as an efficient alternative for Image-Based Augmented Reality systems.
+
+The work is structured as follows:
+\begin{enumerate}
+    \item Problem analysis and technical review of the state of the art in Image-Based Augmented Reality.
+    \item Computational model design for scale-invariant feature extraction in pure JavaScript.
+    \item Implementation of the offline visual target compiler.
+    \item Development of the real-time detection and tracking engine.
+    \item Cross-platform integration and functional validation.
+    \item Experimental evaluation and system performance validation.
+\end{enumerate}
+
+The advancement of Image-Based Augmented Reality has increased the need for visual detection and tracking systems that are efficient, lightweight, and compatible with modern web environments. Many current implementations depend on deep learning frameworks and GPU acceleration for visual feature extraction, which increases system complexity, resource consumption, and portability limitations. Facing this scenario, approaches based on classical computer vision algorithms optimized to run on CPU enable reduction of computational overhead and improvement of real-time efficiency. Various studies have demonstrated that detection and description of invariant features through efficient and compact methods can offer competitive performance in image recognition and tracking tasks, being especially suitable for real-time applications and environments with limited computational resources \cite{b7}.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{fig1.png}}
+\caption{Problem analysis and technical review of the state of the art in Image-Based Augmented Reality.}
+\label{fig1}
+\end{figure}
+
+\subsection{Problem Analysis and Technical Review}
+In this stage, a technical analysis of Image-Based Augmented Reality systems was conducted, identifying critical processes associated with detection and description of scale-invariant and rotation-invariant visual features. Traditional approaches employing GPU-accelerated tensor operations, primarily through TensorFlow.js, were reviewed, evaluating their limitations in terms of computational overhead, initialization latency, bundle size, and compatibility restrictions in web and server environments. This analysis enabled definition of functional and non-functional requirements for the proposed system, prioritizing efficiency, portability, and low resource consumption. The literature indicates that Image-Based Augmented Reality systems heavily depend on extraction of invariant local features for object tracking and recognition, which implies high computational cost and can affect performance in real-time applications and resource-limited environments \cite{b8}.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{fig2.png}}
+\caption{Computational model design for feature extraction in pure JavaScript.}
+\label{fig2}
+\end{figure}
+
+\subsection{Computational Model Design}
+Based on the previous analysis, an alternative computational model was designed for scale-invariant feature extraction, completely dispensing with deep learning libraries. The model is grounded in optimized classical computer vision techniques, incorporating interest point detection, spatial normalization, and generation of compact descriptors through binary data structures. The design considered efficient CPU execution, usage of TypedArrays, and low-level arithmetic operations native to the modern JavaScript ecosystem. Various studies have demonstrated that classical computer vision methods enable robust detection of scale-invariant and rotation-invariant interest points, without requiring deep learning models, based on local descriptors such as SIFT \cite{b9}.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{fig3.png}}
+\caption{Implementation of the offline visual target compiler.}
+\label{fig3}
+\end{figure}
+
+\subsection{Offline Compiler Implementation}
+In this phase, an offline compiler was developed responsible for processing target images and generating optimized binary representations for real-time tracking. The compiler transforms images to grayscale, extracts relevant features, encodes compact descriptors, and packages the information into an efficient binary format. This process was implemented entirely in pure JavaScript, enabling its execution in Node.js environments as well as in browsers and Web Workers, significantly reducing compilation times and generated file sizes. The literature evidences that prior calculation of visual descriptors and use of optimized representations enable reduction of computational load at runtime and improvement of image recognition efficiency in interactive applications \cite{b10}.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{fig4.png}}
+\caption{Development of the real-time tracking and detection engine.}
+\label{fig4}
+\end{figure}
+
+\subsection{Real-Time Tracking Engine Development}
+Subsequently, the real-time tracking engine was implemented, responsible for detecting, matching, and validating visual features during Augmented Reality application execution. The engine processes video streams or static images, performs initial feature detection, executes matching through efficient binary comparisons, and estimates the spatial transformation of the detected target. Temporal filters and loss tolerance mechanisms were incorporated to ensure stability, precision, and tracking continuity without resorting to GPU acceleration. Efficient real-time visual tracking in Augmented Reality systems relies on rapid feature matching strategies and temporal filtering and optimization mechanisms, in order to maintain tracking stability against visual noise and partial occlusions \cite{b11}.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{fig5.png}}
+\caption{Cross-platform integration and functional validation.}
+\label{fig5}
+\end{figure}
+
+\subsection{Cross-Platform Integration}
+The developed system was integrated into different execution environments, including frameworkless web applications, 3D graphics engines, and custom configurations. This stage enabled validation of the proposed approach's compatibility in heterogeneous scenarios, demonstrating its capacity for consistent operation in modern browsers and server environments. Correct target detection, tracking stability, and correct generation of transformation matrices for Augmented Reality applications were verified. Portability and computational efficiency are key factors in tracking libraries for Augmented Reality, as reduction of dependencies on specialized hardware facilitates deployment across multiple platforms \cite{b12}.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{fig6.png}}
+\caption{Experimental evaluation and comparative performance analysis.}
+\label{fig6}
+\end{figure}
+
+\subsection{Experimental Evaluation}
+Finally, an experimental evaluation of the proposed system was conducted through controlled performance and robustness tests. Metrics such as compilation time, initial detection latency, total tracking pipeline time, generated file sizes, and detection success rate under scale, rotation, and resolution variations were analyzed. The results obtained were compared with traditional TensorFlow.js-based implementations, enabling quantification of improvements in efficiency, reduction of technological dependency, and viability of the proposed approach for Image-Based Augmented Reality applications. Experimental validation of computer vision algorithms relies on performance metrics such as processing time, matching precision, and robustness against environmental variations, in order to evaluate their applicability in real scenarios \cite{b13}.
+
+\section{Results}
+
+\subsection{Visual Target Compilation Time (Before vs. After)}
+
+This section presents the results of the comparative analysis of visual target compilation time recorded in 45 experimental executions, before and after implementation of the feature extraction model in pure JavaScript without TensorFlow.js dependency. Compilation time was measured in seconds at two moments: prior to optimization using a traditional TensorFlow.js-based approach (pretest) and after application of the proposed model (posttest).
+
+The results evidence a significant reduction in compilation time after the intervention. In the initial measurement, the average compilation time was 2.31 s (SD = 0.42), while in the final measurement it decreased to 0.94 s (SD = 0.18), representing an approximate relative decrease of 59.3\%. This reduction reflects a substantial improvement in the efficiency of the visual target generation process, attributed to the elimination of tensor operations and CPU processing optimization through pure JavaScript.
+
+The normality analysis indicated that the data exhibit behavior compatible with a normal distribution in both conditions, according to Shapiro--Wilk tests (p = 0.12 before; p = 0.52 after) and Kolmogorov--Smirnov tests (p = 0.33 before; p = 0.75 after). Consequently, Student's t-test for related samples was applied, which confirmed the existence of a statistically significant difference between compilation times before and after implementation of the proposed system ($t(44) = 16.82, p < 0.001$).
+
+These results demonstrate that implementation of a visual target compilation model based on pure JavaScript enables significant optimization of processing times, validating its effectiveness as a lightweight and efficient alternative compared to traditional TensorFlow.js-dependent approaches in Image-Based Augmented Reality systems.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{fig8.png}}
+\caption{Comparison of visual target compilation time before and after implementation of the proposed model.}
+\label{fig8}
+\end{figure}
+
+\subsection{Initial Detection Latency (Before vs. After)}
+
+This section presents the results of the comparative analysis of initial detection latency recorded in 45 experimental executions, before and after implementation of the Augmented Reality system based on feature extraction in pure JavaScript without TensorFlow.js dependency. Initial detection latency was measured in milliseconds and corresponds to the elapsed time from reception of the first input frame until successful detection of the visual target, both in the stage prior to optimization (pretest) and after application of the proposed model (posttest).
+
+The results show a significant reduction in initial detection latency after the intervention. In the initial measurement, the average latency was 87.6 ms (SD = 14.3), while in the subsequent measurement it decreased to 18.9 ms (SD = 4.6), representing an approximate relative decrease of 78.4\%. This improvement evidences a faster system response to visual target detection, attributable to elimination of overhead associated with deep learning model initialization and optimization of the CPU feature matching process.
+
+The normality analysis indicated that the data exhibit behavior compatible with a normal distribution in both conditions, according to Shapiro--Wilk tests (p = 0.57 before; p = 0.79 after) and Kolmogorov--Smirnov tests (p = 0.95 before; p = 0.91 after). Consequently, Student's t-test for related samples was applied, which confirmed the existence of a statistically significant difference between initial detection latencies before and after implementation of the proposed system ($t(44) = 19.46, p < 0.001$).
+
+These results demonstrate that implementation of an Image-Based Augmented Reality system free of TensorFlow.js enables significant reduction of initial detection latency, improving real-time response capacity and validating the viability of the proposed approach for web and cross-platform applications with high-performance requirements.
+
+\begin{figure}[htbp]
+\centerline{\includegraphics[width=\linewidth]{fig9.png}}
+\caption{Comparison of initial detection latency before and after implementation of the proposed system.}
+\label{fig9}
+\end{figure}
+
+\subsection{Normality Tests}
+
+The normality of data series was evaluated through Shapiro--Wilk and Kolmogorov--Smirnov statistical tests, with the objective of verifying whether measurements corresponding to the two main study variables---visual target compilation time and initial detection latency---follow a normal distribution in both the measurement prior to implementation of the proposed model (pretest) and the subsequent measurement (posttest). This verification enabled determination of the most appropriate statistical approach for comparing results before and after application of the Image-Based Augmented Reality system based on feature extraction in pure JavaScript.
+
+\begin{itemize}
+    \item \textbf{Null hypothesis (H$_0$):} The data before and after implementation of the proposed system follow a normal distribution.
+    \item \textbf{Alternative hypothesis (H$_1$):} At least one of the data sets does not follow a normal distribution.
+\end{itemize}
+
+\begin{table}[htbp]
+\caption{Normality Test Results}
+\begin{center}
+\resizebox{\linewidth}{!}{
+\begin{tabular}{|l|c|c|c|c|}
+\hline
+\textbf{Variable} & \textbf{S-W Stat} & \textbf{S-W p} & \textbf{K-S Stat} & \textbf{K-S p} \\
+\hline
+Compilation time (before) & 0.960 & 0.121 & 0.138 & 0.325 \\
+Compilation time (after) & 0.977 & 0.521 & 0.097 & 0.749 \\
+Initial detection latency (before) & 0.979 & 0.568 & 0.075 & 0.947 \\
+Initial detection latency (after) & 0.984 & 0.794 & 0.081 & 0.909 \\
+\hline
+\end{tabular}
+}
+\label{tab1}
+\end{center}
+\end{table}
+
+\textbf{Interpretation:} For all analyzed variables, p-values obtained through Shapiro--Wilk and Kolmogorov--Smirnov tests were greater than the adopted significance level ($\alpha = 0.05$), therefore the null hypothesis of normality is not rejected. Consequently, it is assumed that data corresponding to visual target compilation time and initial detection latency, in both pretest and posttest stages, follow a normal distribution. This result justified the use of parametric statistical tests, specifically Student's t-test for related samples, in order to statistically contrast changes produced after implementation of the proposed Image-Based Augmented Reality system without TensorFlow.js dependency.
+
+\subsection{Paired t-Test}
+
+To evaluate whether observed differences between measurements before and after implementation of the Augmented Reality system based on feature extraction in pure JavaScript were statistically significant, a paired t-test was applied for each of the analyzed variables: visual target compilation time and initial detection latency. Both variables were evaluated at two temporal moments: before application of the proposed model (pretest) and after its implementation (posttest).
+
+\begin{itemize}
+    \item \textbf{Null hypothesis (H$_0$):} There is no significant difference between means before and after implementation of the proposed system ($\mu_1 = \mu_2$).
+    \item \textbf{Alternative hypothesis (H$_1$):} There is a significant difference between means before and after implementation of the proposed system ($\mu_1 \neq \mu_2$).
+\end{itemize}
+
+\begin{table}[htbp]
+\caption{Paired t-Test Results}
+\begin{center}
+\resizebox{\linewidth}{!}{
+\begin{tabular}{|l|c|c|}
+\hline
+\textbf{Statistic} & \textbf{Compilation Time (s)} & \textbf{Detection Latency (ms)} \\
+\hline
+t & 16.82 & 19.46 \\
+df & 44 & 44 \\
+p-value & $< 0.001$ & $< 0.001$ \\
+Mean before & 2.31 & 87.6 \\
+Mean after & 0.94 & 18.9 \\
+Mean difference ($\Delta$) & $-1.37$ & $-68.7$ \\
+\hline
+\end{tabular}
+}
+\label{tab2}
+\end{center}
+\end{table}
+
+\textbf{Interpretation:} The paired t-test results evidence highly significant differences in both analyzed variables ($p < 0.001$), confirming that implementation of the Image-Based Augmented Reality system without TensorFlow.js dependency had a positive and statistically robust impact on system performance. In the case of visual target compilation time, the mean decreased from 2.31 s to 0.94 s, representing an approximate decrease of 59.3\%, evidencing a substantial improvement in the efficiency of the visual target generation process. For its part, initial detection latency decreased from 87.6 ms to 18.9 ms, equivalent to an approximate relative reduction of 78.4\%, demonstrating a significant improvement in real-time system response capacity. These findings confirm the effectiveness of the proposed model, validating its applicability as a lightweight, efficient, and cross-platform alternative for Image-Based Augmented Reality systems, especially in web and server environments where latency and resource consumption reduction is critical.
+
+\section{Discussion}
+The results obtained in this study evidence that elimination of deep learning frameworks and GPU-accelerated tensor operations, in favor of a pure JavaScript-based approach optimized for CPU, produces significant improvements in key performance metrics for Image-Based Augmented Reality systems. The observed reduction in both visual target compilation time and initial detection latency confirms that classical computer vision methods, when properly optimized, can offer competitive performance and, in some cases, superior to deep learning-based approaches for WebAR scenarios. These findings align with previous research highlighting practical limitations of resource-intensive frameworks in web environments and reinforce the viability of lightweight solutions oriented toward cross-platform execution. Likewise, the statistical validation of results supports the robustness of the proposed approach, positioning it as an efficient applicative alternative for developing accessible, scalable, and compatible Augmented Reality systems across a wide variety of devices and browsers.
+
+\section{Conclusion}
+This study demonstrated that it is possible to design and implement an efficient and functional Image-Based Augmented Reality system dispensing with deep learning frameworks and GPU-accelerated tensor operations. The pure JavaScript-based proposal enabled optimization of critical system processes, particularly visual target compilation time and initial detection latency, evidencing statistically significant improvements compared to traditional TensorFlow.js-dependent approaches.
+
+The experimental results confirmed that CPU processing optimization, together with use of an offline visual target compiler and a real-time detection and tracking engine, contributes to reducing computational overhead and improving cross-platform compatibility in web environments. These characteristics position the proposed system as a viable applicative solution for WebAR scenarios, especially on devices with limited resources or without access to hardware acceleration.
+
+Likewise, the statistical validation performed through normality tests and paired t-test supports the methodological robustness of the study and reliability of the obtained results. The quantitative evidence presented allows affirming that classical computer vision methods, when properly optimized, continue to be a competitive alternative for Image-Based Augmented Reality applications, without compromising system efficiency or stability.
+
+Finally, this work contributes to the development of lightweight, scalable, and universal Augmented Reality systems, demonstrating that CPU-only solutions can satisfy performance requirements of modern web applications. As future research directions, it is proposed to extend system evaluation in scenarios with multiple simultaneous targets and analyze its integration with hybrid techniques that combine classical methods and lightweight machine learning, maintaining the focus on efficiency and portability.
+
+\begin{thebibliography}{00}
+\bibitem{b1} D. G. Lowe, ``Distinctive image features from scale-invariant keypoints,'' \textit{International Journal of Computer Vision}, vol. 60, no. 2, pp. 91--110, 2004.
+\bibitem{b2} A. M. Plaza Cordero and J. L. Zambrano Mart\'inez, ``Study and selection of SIFT, SURF and ASIFT image recognition techniques for prototype design on mobile devices,'' Bachelor's thesis, Universidad Polit\'ecnica Salesiana, 2011. [Online]. Available: https://dspace.ups.edu.ec/handle/123456789/1259
+\bibitem{b3} Q. Fu, Y. Chen, and H. Wang, ``Web augmented reality: A promising future for mobile augmented reality,'' \textit{IEEE Access}, vol. 7, pp. 150452--150471, 2019.
+\bibitem{b4} H. Durchon and C. Coutrix, ``Challenges in applying deep learning to augmented reality assistive software,'' in \textit{Proc. IUI '22 Companion}, 2022, pp. 1--5.
+\bibitem{b5} On\'irix, ``Image tracking in Web AR: What it is and how to use it,'' 2023. [Online]. Available: https://www.onirix.com/learn-about-ar/web-ar-image-tracking/
+\bibitem{b6} A. Khan et al., ``A systematic review of real-time deep learning methods for image-based augmented reality,'' \textit{Dove Press}, 2024.
+\bibitem{b7} E. Rublee, V. Rabaud, K. Konolige, and G. Bradski, ``ORB: An efficient alternative to SIFT or SURF,'' in \textit{Proc. ICCV}, 2011.
+\bibitem{b8} V. Lepetit and P. Fua, ``Monocular model-based 3D tracking of rigid objects: A survey,'' \textit{Foundations and Trends in Computer Graphics and Vision}, vol. 1, no. 1, pp. 1--89, 2005.
+\bibitem{b9} D. G. Lowe, ``Distinctive image features from scale-invariant keypoints,'' \textit{International Journal of Computer Vision}, vol. 60, no. 2, pp. 91--110, 2004.
+\bibitem{b10} H. Bay, T. Tuytelaars, and L. Van Gool, ``SURF: Speeded up robust features,'' in \textit{Proc. ECCV}, 2006.
+\bibitem{b11} G. Klein and D. Murray, ``Parallel tracking and mapping for small AR workspaces,'' in \textit{Proc. ISMAR}, 2007.
+\bibitem{b12} B. MacIntyre, A. Hill, H. Rouzati, M. Gandy, and B. Davidson, ``The ARToolKit tracking library: A practical guide,'' in \textit{Proc. ISMAR}, 2011.
+\bibitem{b13} R. Szeliski, \textit{Computer Vision: Algorithms and Applications}. Springer, 2010.
+\end{thebibliography}
 
 \end{document}
