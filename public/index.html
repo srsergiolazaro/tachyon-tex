@@ -1,12 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Tachyon-Tex | Ultra-Fast LaTeX Compiler</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono&display=swap"
+        rel="stylesheet">
     <style>
         :root {
             --primary: #6366f1;
@@ -34,7 +36,7 @@
             align-items: center;
             justify-content: center;
             overflow-x: hidden;
-            background-image: 
+            background-image:
                 radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
                 radial-gradient(circle at 80% 80%, rgba(168, 85, 247, 0.15) 0%, transparent 40%);
         }
@@ -54,6 +56,7 @@
             margin-bottom: 0.5rem;
             background: linear-gradient(to right, #fff, #a5b4fc);
             -webkit-background-clip: text;
+            background-clip: text;
             -webkit-text-fill-color: transparent;
             text-shadow: 0 0 30px var(--primary-glow);
         }
@@ -158,9 +161,17 @@
         }
 
         @keyframes pulse {
-            0% { opacity: 0.6; }
-            50% { opacity: 1; }
-            100% { opacity: 0.6; }
+            0% {
+                opacity: 0.6;
+            }
+
+            50% {
+                opacity: 1;
+            }
+
+            100% {
+                opacity: 0.6;
+            }
         }
 
         .overlay {
@@ -174,6 +185,7 @@
         }
     </style>
 </head>
+
 <body>
     <div class="overlay"></div>
     <div class="container">
@@ -181,9 +193,9 @@
         <p class="tagline">The ephemeral, zero-disk, sub-second LaTeX engine.</p>
 
         <div class="drop-zone" id="drop-zone">
-            <h3>Drop your project ZIP</h3>
-            <p>Make sure it contains a <code>main.tex</code></p>
-            <input type="file" id="file-input" accept=".zip">
+            <h3>Drop your files here</h3>
+            <p>ZIP, .tex, .bib, .sty — we'll find your main file automatically</p>
+            <input type="file" id="file-input" accept=".zip,.tex,.bib,.sty,.cls,.bst" multiple>
         </div>
 
         <div class="status-badge" id="status">Ready</div>
@@ -200,7 +212,8 @@
         </div>
 
         <div id="result-link" style="margin-top: 2rem; display: none;">
-            <a href="#" id="download-pdf" style="color: var(--primary); font-weight: 600; text-decoration: none; border-bottom: 2px solid var(--primary);">
+            <a href="#" id="download-pdf"
+                style="color: var(--primary); font-weight: 600; text-decoration: none; border-bottom: 2px solid var(--primary);">
                 Download PDF
             </a>
         </div>
@@ -230,18 +243,18 @@
         dropZone.addEventListener('drop', (e) => {
             e.preventDefault();
             dropZone.classList.remove('dragging');
-            const file = e.dataTransfer.files[0];
-            if (file && file.name.endsWith('.zip')) {
-                uploadFile(file);
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                uploadFiles(files);
             }
         });
 
         fileInput.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) uploadFile(file);
+            const files = e.target.files;
+            if (files.length > 0) uploadFiles(files);
         });
 
-        async function uploadFile(file) {
+        async function uploadFiles(files) {
             status.textContent = 'Compiling...';
             status.classList.add('compiling');
             status.style.opacity = '1';
@@ -249,7 +262,9 @@
             resultLink.style.display = 'none';
 
             const formData = new FormData();
-            formData.append('file', file);
+            for (const file of files) {
+                formData.append('files', file, file.name);
+            }
 
             const start = performance.now();
             try {
@@ -264,20 +279,24 @@
                 if (response.ok) {
                     const blob = await response.blob();
                     const url = URL.createObjectURL(blob);
-                    
+
                     status.textContent = 'Completed';
                     status.classList.remove('compiling');
-                    
+
                     engineTime.textContent = response.headers.get('X-Compile-Time-Ms') + 'ms';
                     totalTime.textContent = diff + 'ms';
                     stats.classList.add('visible');
-                    
+
                     resultLink.style.display = 'block';
                     downloadPdf.href = url;
-                    downloadPdf.download = file.name.replace('.zip', '.pdf');
+
+                    // Generate output name
+                    const firstFile = files[0].name;
+                    const baseName = firstFile.replace(/\.(zip|tex)$/i, '');
+                    downloadPdf.download = baseName + '.pdf';
                 } else {
                     const text = await response.text();
-                    status.textContent = 'Error: ' + text;
+                    status.textContent = 'Error: ' + text.substring(0, 100);
                     status.classList.remove('compiling');
                 }
             } catch (err) {
@@ -287,4 +306,5 @@
         }
     </script>
 </body>
+
 </html>

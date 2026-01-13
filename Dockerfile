@@ -34,7 +34,9 @@ COPY . .
 RUN cargo build --release
 
 # 4. Warmup
-RUN ./target/release/tachyon-tex --warmup || true
+RUN mkdir -p /root/.cache/Tectonic && \
+    /usr/local/cargo/bin/tectonic warmup.tex && \
+    ./target/release/tachyon-tex --warmup || true
 
 # --- STAGE 2: Final Image ---
 FROM debian:bookworm

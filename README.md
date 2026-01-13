@@ -43,25 +43,85 @@ Tachyon-Tex achieves its speed by identifying that the primary bottleneck in LaT
 2. **Virtual Memory Filesystem (VFS)**: We use `MemoryIo` to bypass the disk. The `.tex` input, `.aux` state, and `.pdf` output never touch the SSD.
 3. **Pre-warmed Snapshot**: The Docker image contains a frozen state of the Tectonic package bundle, eliminating network lookups at runtime.
 
-## 🔧 API Usage
+## 🔧 API Reference
 
-### Compile a LaTeX Project
+### `POST /compile` — Compile LaTeX to PDF
+
+Supports **ZIP files** or **multiple individual files** via multipart/form-data.
 
 ```bash
-# Create a ZIP with your .tex files
-zip project.zip main.tex
-
-# Send to API
+# Option 1: Send a ZIP file
 curl -X POST -F "file=@project.zip" http://localhost:8080/compile -o output.pdf
 
+# Option 2: Send multiple files directly (no ZIP needed!)
+curl -X POST \
+  -F "main=@main.tex" \
+  -F "refs=@references.bib" \
+  -F "style=@ieee.sty" \
+  http://localhost:8080/compile -o output.pdf
+
 # Check compilation time (in response header)
-curl -X POST -F "file=@project.zip" http://localhost:8080/compile -I
-# x-compile-time-ms: 857
+curl -X POST -F "file=@doc.tex" http://localhost:8080/compile -I
+# X-Compile-Time-Ms: 857
+# X-Files-Received: 3
 ```
+
+**Response Headers:**
+- `X-Compile-Time-Ms`: Engine compilation time in milliseconds
+- `X-Files-Received`: Number of files processed
+
+---
+
+### `POST /validate` — Validate LaTeX Syntax
+
+Checks your `.tex` file for common errors **without compiling**.
+
+```bash
+curl -X POST -F "file=@document.tex" http://localhost:8080/validate
+```
+
+**Response (JSON):**
+```json
+{
+  "valid": false,
+  "errors": [
+    {"line": 15, "column": null, "message": "Missing \\end{document}", "severity": "error"},
+    {"line": 8, "column": null, "message": "Environment mismatch: expected \\end{itemize}, found \\end{enumerate}", "severity": "error"}
+  ],
+  "warnings": [
+    "Line 12: Consider using \\[ \\] instead of $$ for display math",
+    "Line 20: \\bf is deprecated, use \\textbf{} instead"
+  ]
+}
+```
+
+---
+
+### `GET /packages` — List Available Packages
+
+Returns all LaTeX packages available in the Tectonic bundle.
+
+```bash
+curl http://localhost:8080/packages
+```
+
+**Response (JSON):**
+```json
+{
+  "count": 38,
+  "packages": [
+    {"name": "amsmath", "description": "AMS mathematical facilities", "category": "math"},
+    {"name": "tikz", "description": "Create graphics programmatically", "category": "graphics"},
+    {"name": "hyperref", "description": "Hyperlinks and bookmarks", "category": "document"}
+  ]
+}
+```
+
+---
 
 ### Web Interface
 
-Open [http://localhost:8080](http://localhost:8080) for a drag-and-drop interface.
+Open [http://localhost:8080](http://localhost:8080) for a drag-and-drop interface that supports multiple files.
 
 ## 🐳 Docker Hub
 
@@ -105,6 +165,30 @@ docker build -t tachyon-tex .
 # Run
 docker run -p 8080:8080 tachyon-tex
 ```
+
+## 🧪 Testing
+
+The project includes a comprehensive test suite to verify all endpoints and performance.
+
+### API Test Suite (Node.js)
+Requires Node.js 18+. Verifies compilation, multi-file support, and syntax validation.
+```bash
+node tests/api.test.js
+```
+
+### Quick Test (PowerShell)
+No dependencies required. Perfect for a quick health check.
+```powershell
+.\tests\quick-test.ps1
+```
+
+## 🚀 Key Features
+
+- **Multi-File Support**: No ZIP required. Send multiple `.tex`, `.bib`, and `.sty` files in a single request.
+- **Smart Detection**: Automatically finds the main `.tex` file by scanning for `\begin{document}`.
+- **Syntax Validation**: Real-time validation endpoint to catch errors before compilation.
+- **Pre-warmed Cache**: Common packages (TikZ, AMS, etc.) are pre-installed in the Docker image.
+- **RAM-only Processing**: Virtual filesystem means no disk I/O bottlenecks.
 
 ## 🚀 Future Vision (Roadmap)
 
