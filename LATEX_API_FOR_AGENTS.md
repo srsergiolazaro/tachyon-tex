@@ -2,6 +2,8 @@
 
 Este documento está diseñado para ser consumido por Agentes de IA que operan sobre este sistema de compilación LaTeX.
 
+**Production URL**: `https://latex.taptapp.xyz`
+
 ## 🧠 Filosofía del Sistema (Contexto para el Agente)
 - **Ultra-Fast (Moonshot)**: La latencia es el enemigo. El sistema está diseñado para dar feedback en <1 segundo.
 - **Efímero y Stateless**: Cada request vive en un disco RAM segregado. Nada persiste tras el cierre de la conexión.
@@ -9,7 +11,7 @@ Este documento está diseñado para ser consumido por Agentes de IA que operan s
 
 ## 📡 Endpoints y Protocolos
 
-### 1. `POST /compile` — El Motor de Renderizado
+### 1. `POST https://latex.taptapp.xyz/compile` — El Motor de Renderizado
 Es el endpoint principal. Convierte LaTeX a PDF.
 
 **Capacidades Críticas:**
@@ -22,7 +24,7 @@ Es el endpoint principal. Convierte LaTeX a PDF.
 
 ---
 
-### 2. `POST /validate` — Pre-flight Check (Tu Herramienta de Linter)
+### 2. `POST https://latex.taptapp.xyz/validate` — Pre-flight Check (Tu Herramienta de Linter)
 **¡IMPORTANTE!** Usa este endpoint **antes** de compilar para ahorrar recursos y tiempo.
 
 **Qué detecta:**
@@ -33,7 +35,7 @@ Es el endpoint principal. Convierte LaTeX a PDF.
 
 ---
 
-### 3. `GET /packages` — Inventario de Capacidades
+### 3. `GET https://latex.taptapp.xyz/packages` — Inventario de Capacidades
 Consulta este endpoint para saber qué paquetes básicos están pre-cargados en cache. Si un paquete no está aquí, Tectonic intentará descargarlo al vuelo (lo cual añade latencia de red).
 
 ## 🛠️ Workflow de Instrucción (Cómo debe actuar un Agente)
