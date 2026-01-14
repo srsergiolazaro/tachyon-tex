@@ -1,7 +1,7 @@
 # 🚀 Tachyon-Tex: The Moonshot LaTeX Compiler
 
 [![Docker Hub](https://img.shields.io/docker/v/srsergio/tachyon-tex?label=Docker%20Hub&logo=docker)](https://hub.docker.com/r/srsergio/tachyon-tex)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: Fair Source 0.9](https://img.shields.io/badge/License-Fair%20Source%200.9-blue.svg)](LICENSE)
 
 **Tachyon-Tex** is a high-performance, ephemeral LaTeX compiler that achieves **sub-second compilation times**. Built with Rust and the Tectonic engine, it processes documents entirely in memory (RAM) to eliminate I/O bottlenecks.
 
@@ -227,7 +227,7 @@ No dependencies required. Perfect for a quick health check.
 
 ## 📜 License
 
-MIT License - Feel free to use, modify, and distribute.
+Fair Source License, version 0.9 - See [LICENSE](LICENSE) for details.
 
 ## 🤝 Contributing
 
