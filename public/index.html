@@ -4,307 +4,79 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Tachyon-Tex | Ultra-Fast LaTeX Compiler</title>
+    <title>Tachyon-Tex | Live LaTeX Engine</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=JetBrains+Mono&display=swap"
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet">
-    <style>
-        :root {
-            --primary: #6366f1;
-            --primary-glow: rgba(99, 102, 241, 0.4);
-            --bg: #030712;
-            --card-bg: rgba(17, 24, 39, 0.7);
-            --border: rgba(75, 85, 99, 0.3);
-            --text: #f3f4f6;
-            --text-dim: #9ca3af;
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            overflow-x: hidden;
-            background-image:
-                radial-gradient(circle at 20% 20%, rgba(99, 102, 241, 0.15) 0%, transparent 40%),
-                radial-gradient(circle at 80% 80%, rgba(168, 85, 247, 0.15) 0%, transparent 40%);
-        }
-
-        .container {
-            width: 100%;
-            max-width: 600px;
-            padding: 2rem;
-            text-align: center;
-            z-index: 10;
-        }
-
-        h1 {
-            font-size: 4rem;
-            font-weight: 800;
-            letter-spacing: -2px;
-            margin-bottom: 0.5rem;
-            background: linear-gradient(to right, #fff, #a5b4fc);
-            -webkit-background-clip: text;
-            background-clip: text;
-            -webkit-text-fill-color: transparent;
-            text-shadow: 0 0 30px var(--primary-glow);
-        }
-
-        p.tagline {
-            color: var(--text-dim);
-            font-size: 1.2rem;
-            margin-bottom: 3rem;
-        }
-
-        .drop-zone {
-            background: var(--card-bg);
-            border: 2px dashed var(--border);
-            border-radius: 24px;
-            padding: 4rem 2rem;
-            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-            cursor: pointer;
-            backdrop-filter: blur(12px);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .drop-zone:hover {
-            border-color: var(--primary);
-            box-shadow: 0 0 40px var(--primary-glow);
-            transform: translateY(-4px);
-        }
-
-        .drop-zone.dragging {
-            background: rgba(99, 102, 241, 0.05);
-            border-color: var(--primary);
-        }
-
-        .drop-zone h3 {
-            font-size: 1.5rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .drop-zone p {
-            color: var(--text-dim);
-        }
-
-        #file-input {
-            display: none;
-        }
-
-        .stats {
-            margin-top: 2rem;
-            display: flex;
-            gap: 1rem;
-            justify-content: center;
-            opacity: 0;
-            transform: translateY(10px);
-            transition: all 0.5s ease;
-        }
-
-        .stats.visible {
-            opacity: 1;
-            transform: translateY(0);
-        }
-
-        .stat-card {
-            background: var(--card-bg);
-            border: 1px solid var(--border);
-            padding: 1rem 1.5rem;
-            border-radius: 16px;
-            min-width: 120px;
-        }
-
-        .stat-card label {
-            display: block;
-            font-size: 0.75rem;
-            color: var(--text-dim);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 0.25rem;
-        }
-
-        .stat-card span {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 1.25rem;
-            font-weight: 600;
-            color: var(--primary);
-        }
-
-        .status-badge {
-            display: inline-block;
-            margin-top: 1rem;
-            padding: 0.5rem 1rem;
-            border-radius: 99px;
-            font-size: 0.875rem;
-            font-weight: 600;
-            background: rgba(16, 185, 129, 0.1);
-            color: #10b981;
-            opacity: 0;
-        }
-
-        .status-badge.compiling {
-            background: rgba(99, 102, 241, 0.1);
-            color: var(--primary);
-            animation: pulse 1.5s infinite;
-        }
-
-        @keyframes pulse {
-            0% {
-                opacity: 0.6;
-            }
-
-            50% {
-                opacity: 1;
-            }
-
-            100% {
-                opacity: 0.6;
-            }
-        }
-
-        .overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            pointer-events: none;
-            background: radial-gradient(circle at center, transparent 0%, var(--bg) 90%);
-        }
-    </style>
+    <link rel="stylesheet" href="/styles.css">
 </head>
 
 <body>
-    <div class="overlay"></div>
-    <div class="container">
-        <h1>Tachyon-Tex</h1>
-        <p class="tagline">The ephemeral, zero-disk, sub-second LaTeX engine.</p>
-
-        <div class="drop-zone" id="drop-zone">
-            <h3>Drop your files here</h3>
-            <p>ZIP, .tex, .bib, .sty — we'll find your main file automatically</p>
-            <input type="file" id="file-input" accept=".zip,.tex,.bib,.sty,.cls,.bst" multiple>
+    <header class="header">
+        <div class="brand">
+            <span class="brand-name">Tachyon-Tex</span>
+            <span class="live-badge">LIVE</span>
         </div>
-
-        <div class="status-badge" id="status">Ready</div>
-
-        <div class="stats" id="stats">
-            <div class="stat-card">
-                <label>Engine Time</label>
-                <span id="engine-time">--</span>
+        <div class="header-right">
+            <div class="status-indicator">
+                <div id="status-dot" class="status-dot"></div>
+                <span id="status-text" class="status-text">Connecting...</span>
             </div>
-            <div class="stat-card">
-                <label>Total RTT</label>
-                <span id="total-time">--</span>
+            <span class="compile-time"><span id="compile-time">—</span></span>
+            <button class="export-btn" onclick="exportPDF()">↓ Export PDF</button>
+        </div>
+    </header>
+
+    <main class="main">
+        <!-- Sidebar for Assets (v1.3) -->
+        <aside id="file-tree" class="file-tree">
+            <div class="file-tree-header">
+                <span>Files</span>
+                <span class="add-file-btn" onclick="triggerAssetUpload()">+ Add</span>
+            </div>
+            <div id="file-list" class="file-list">
+                <!-- Populated by JS -->
+            </div>
+            <input type="file" id="asset-upload" style="display: none;" multiple onchange="hdlAssetUpload(event)">
+        </aside>
+
+        <!-- Editor Panel -->
+        <div id="editor-panel" class="editor-panel">
+            <div class="panel-header">
+                <div class="file-icon"></div>
+                <span id="active-file-name" class="file-name">main.tex</span>
+            </div>
+            <textarea id="editor" spellcheck="false"></textarea>
+        </div>
+
+        <!-- Preview Panel -->
+        <div id="preview-panel" class="preview-panel hidden-mobile">
+            <div class="panel-header" style="justify-content: center;">
+                <span class="preview-title">PDF Preview</span>
+            </div>
+            <div class="pdf-container">
+                <div class="pdf-wrapper">
+                    <div id="empty-state" class="empty-state">
+                        <div class="empty-icon">📄</div>
+                        <div class="empty-text">Compiling document...</div>
+                    </div>
+                    <iframe id="pdf-1" class="pdf-frame hidden"></iframe>
+                    <iframe id="pdf-2" class="pdf-frame hidden"></iframe>
+                </div>
             </div>
         </div>
+    </main>
 
-        <div id="result-link" style="margin-top: 2rem; display: none;">
-            <a href="#" id="download-pdf"
-                style="color: var(--primary); font-weight: 600; text-decoration: none; border-bottom: 2px solid var(--primary);">
-                Download PDF
-            </a>
-        </div>
-    </div>
+    <!-- Mobile UI Controls -->
+    <button id="view-toggle" class="mobile-view-toggle" onclick="toggleMobileView()">👁️</button>
+    <button id="files-toggle" class="mobile-view-toggle" style="right: 90px; background: var(--bg-card); display: none;"
+        onclick="toggleFileTree()">📁</button>
 
-    <script>
-        const dropZone = document.getElementById('drop-zone');
-        const fileInput = document.getElementById('file-input');
-        const status = document.getElementById('status');
-        const stats = document.getElementById('stats');
-        const engineTime = document.getElementById('engine-time');
-        const totalTime = document.getElementById('total-time');
-        const resultLink = document.getElementById('result-link');
-        const downloadPdf = document.getElementById('download-pdf');
+    <div id="error-toast" class="error-toast"></div>
 
-        dropZone.addEventListener('click', () => fileInput.click());
-
-        dropZone.addEventListener('dragover', (e) => {
-            e.preventDefault();
-            dropZone.classList.add('dragging');
-        });
-
-        dropZone.addEventListener('dragleave', () => {
-            dropZone.classList.remove('dragging');
-        });
-
-        dropZone.addEventListener('drop', (e) => {
-            e.preventDefault();
-            dropZone.classList.remove('dragging');
-            const files = e.dataTransfer.files;
-            if (files.length > 0) {
-                uploadFiles(files);
-            }
-        });
-
-        fileInput.addEventListener('change', (e) => {
-            const files = e.target.files;
-            if (files.length > 0) uploadFiles(files);
-        });
-
-        async function uploadFiles(files) {
-            status.textContent = 'Compiling...';
-            status.classList.add('compiling');
-            status.style.opacity = '1';
-            stats.classList.remove('visible');
-            resultLink.style.display = 'none';
-
-            const formData = new FormData();
-            for (const file of files) {
-                formData.append('files', file, file.name);
-            }
-
-            const start = performance.now();
-            try {
-                const response = await fetch('/compile', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                const end = performance.now();
-                const diff = Math.round(end - start);
-
-                if (response.ok) {
-                    const blob = await response.blob();
-                    const url = URL.createObjectURL(blob);
-
-                    status.textContent = 'Completed';
-                    status.classList.remove('compiling');
-
-                    engineTime.textContent = response.headers.get('X-Compile-Time-Ms') + 'ms';
-                    totalTime.textContent = diff + 'ms';
-                    stats.classList.add('visible');
-
-                    resultLink.style.display = 'block';
-                    downloadPdf.href = url;
-
-                    // Generate output name
-                    const firstFile = files[0].name;
-                    const baseName = firstFile.replace(/\.(zip|tex)$/i, '');
-                    downloadPdf.download = baseName + '.pdf';
-                } else {
-                    const text = await response.text();
-                    status.textContent = 'Error: ' + text.substring(0, 100);
-                    status.classList.remove('compiling');
-                }
-            } catch (err) {
-                status.textContent = 'Network Error';
-                status.classList.remove('compiling');
-            }
-        }
-    </script>
+    <script src="/app.js"></script>
 </body>
 
 </html>

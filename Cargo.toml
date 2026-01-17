@@ -5,7 +5,7 @@ edition = "2021"
 license-file = "LICENSE"
 
 [dependencies]
-axum = { version = "0.7", features = ["multipart"] }
+axum = { version = "0.7", features = ["multipart", "ws"] }
 tokio = { version = "1", features = ["full"] }
 tectonic = { version = "0.15", features = ["external-harfbuzz"] }
 tower-http = { version = "0.5", features = ["limit", "cors"] }

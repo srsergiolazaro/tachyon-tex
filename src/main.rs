@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Multipart, DefaultBodyLimit, State, Path},
+    extract::{Multipart, DefaultBodyLimit, State, Path, ws::{WebSocket, WebSocketUpgrade, Message}},
     http::{header, StatusCode},
     response::{IntoResponse, Response, Html, Json},
     routing::{get, post, delete},
@@ -37,6 +37,12 @@ struct ValidationError {
     column: Option<u32>,
     message: String,
     severity: String,
+}
+
+#[derive(Deserialize)]
+struct WsProject {
+    main: Option<String>,
+    files: HashMap<String, String>, // name -> content (text for .tex/.sty, base64 for others)
 }
 
 #[derive(Serialize)]
@@ -375,6 +381,20 @@ async fn index_handler() -> Html<&'static str> {
     Html(include_str!("../public/index.html"))
 }
 
+async fn styles_handler() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css")],
+        include_str!("../public/styles.css"),
+    )
+}
+
+async fn app_js_handler() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "application/javascript")],
+        include_str!("../public/app.js"),
+    )
+}
+
 /// GET /packages - List available LaTeX packages
 async fn packages_handler() -> Json<PackagesResponse> {
     // Common packages available in Tectonic
@@ -499,6 +519,137 @@ async fn delete_webhook_handler(
         (StatusCode::OK, Json(serde_json::json!({"deleted": true, "id": id})))
     } else {
         (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Webhook not found"})))
+    }
+}
+
+/// WebSocket handler for real-time compilation
+async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
+    ws.on_upgrade(|socket| handle_socket(socket, state))
+}
+
+/// Handle a single WebSocket session for live streaming
+async fn handle_socket(mut socket: WebSocket, _state: AppState) {
+    info!("\u{1F50C} WebSocket connection established");
+    
+    while let Some(msg) = socket.recv().await {
+        let msg = match msg {
+            Ok(msg) => msg,
+            Err(e) => {
+                info!("\u{26A0}\u{FE0F} WebSocket error: {}", e);
+                return;
+            }
+        };
+
+        if let Message::Text(text) = msg {
+            let start = std::time::Instant::now();
+            
+            // Try to parse as JSON project
+            if let Ok(project) = serde_json::from_str::<WsProject>(&text) {
+                info!("\u{1F4D1} Live Project Compile: {} files", project.files.len());
+                
+                // Multi-file compilation using Tectonic CLI
+                let temp_dir = match TempDir::new() {
+                    Ok(d) => d,
+                    Err(e) => {
+                        let _ = socket.send(Message::Text(serde_json::json!({
+                            "type": "compile_error",
+                            "error": format!("Temp dir fail: {}", e)
+                        }).to_string())).await;
+                        continue;
+                    }
+                };
+
+                // Write files
+                for (name, content) in &project.files {
+                    let path = temp_dir.path().join(name);
+                    if let Some(parent) = path.parent() {
+                        fs::create_dir_all(parent).ok();
+                    }
+                    
+                    // Decode base64 if not .tex/.sty (simple heuristic)
+                    if name.ends_with(".tex") || name.ends_with(".sty") || name.ends_with(".cls") {
+                        let _ = fs::write(&path, content);
+                    } else if let Ok(binary) = general_purpose::STANDARD.decode(content) {
+                        let _ = fs::write(&path, binary);
+                    } else {
+                        let _ = fs::write(&path, content);
+                    }
+                }
+
+                let main_tex = project.main.unwrap_or_else(|| "main.tex".to_string());
+                let main_path = temp_dir.path().join(&main_tex);
+
+                let result = std::process::Command::new("tectonic")
+                    .arg("-X")
+                    .arg("compile")
+                    .arg(&main_path)
+                    .arg("--outdir")
+                    .arg(temp_dir.path())
+                    .output();
+
+                match result {
+                    Ok(output) => {
+                        if output.status.success() {
+                            let pdf_name = main_path.file_stem().unwrap().to_str().unwrap();
+                            let pdf_path = temp_dir.path().join(format!("{}.pdf", pdf_name));
+                            
+                            if let Ok(pdf_data) = fs::read(&pdf_path) {
+                                let duration = start.elapsed().as_millis() as u64;
+                                let _ = socket.send(Message::Text(serde_json::json!({
+                                    "type": "compile_success",
+                                    "compile_time_ms": duration,
+                                    "pdf": general_purpose::STANDARD.encode(&pdf_data)
+                                }).to_string())).await;
+                            }
+                        } else {
+                            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+                            let _ = socket.send(Message::Text(serde_json::json!({
+                                "type": "compile_error",
+                                "error": stderr
+                            }).to_string())).await;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = socket.send(Message::Text(serde_json::json!({
+                            "type": "compile_error",
+                            "error": e.to_string()
+                        }).to_string())).await;
+                    }
+                }
+            } else {
+                // FALLBACK: Simple single-file compilation (Fast Path)
+                info!("\u{26A1} Live Compile Request (Raw): {} chars", text.len());
+                match tectonic::latex_to_pdf(&text) {
+                    Ok(pdf_data) => {
+                        let duration = start.elapsed().as_millis() as u64;
+                        let pdf_base64 = general_purpose::STANDARD.encode(&pdf_data);
+                        let response = serde_json::json!({
+                            "type": "compile_success",
+                            "compile_time_ms": duration,
+                            "pdf": pdf_base64
+                        });
+                        if let Ok(json) = serde_json::to_string(&response) {
+                            let _ = socket.send(Message::Text(json)).await;
+                        }
+                    }
+                    Err(e) => {
+                        let response = serde_json::json!({
+                            "type": "compile_error",
+                            "error": e.to_string()
+                        });
+                        if let Ok(json) = serde_json::to_string(&response) {
+                            let _ = socket.send(Message::Text(json)).await;
+                        }
+                    }
+                }
+            }
+        } else if let Message::Close(_) = msg {
+            info!("\u{1F50C} WebSocket client disconnected gracefully");
+            break;
+        }
     }
 }
 
@@ -1018,7 +1169,10 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(index_handler))
+        .route("/styles.css", get(styles_handler))
+        .route("/app.js", get(app_js_handler))
         .route("/compile", post(compile_handler))
+        .route("/ws", get(ws_handler))
         .route("/validate", post(validate_handler))
         .route("/packages", get(packages_handler))
         .route("/webhooks", post(create_webhook_handler))
