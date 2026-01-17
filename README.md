@@ -151,7 +151,27 @@ curl http://localhost:8080/packages
 
 Open [http://localhost:8080](http://localhost:8080) for a drag-and-drop interface that supports multiple files.
 
-## 🐳 Docker Hub
+## �️ QTex CLI & Live Preview
+
+Tachyon-Tex is best experienced with **QTex**, our dedicated CLI client that enables **Instant Live HMR** over WebSockets.
+
+### Features
+- **Instant Preview**: Sub-second updates as you type.
+- **Smart Formatting**: Handles multiple files and dependencies automatically.
+- **Format Caching (HMR v2)**: Reuses pre-compiled preambles for ultra-fast incremental builds (~20ms).
+
+### Quick Start (Node.js)
+
+```bash
+# Install dependencies
+cd qtex
+npm install
+
+# Run in watch mode (requires Tachyon-Tex server running)
+node index.js --watch ../test/main.tex
+```
+
+## �🐳 Docker Hub
 
 ```bash
 # Latest version
