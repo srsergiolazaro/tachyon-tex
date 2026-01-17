@@ -1,0 +1,8 @@
+target/
+tests/
+.git/
+.dockerignore
+node_modules/
+*.pdf
+warmup/
+dist/

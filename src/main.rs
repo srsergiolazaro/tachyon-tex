@@ -1,10 +1,11 @@
 use axum::{
-    extract::{Multipart, DefaultBodyLimit, State},
+    extract::{Multipart, DefaultBodyLimit, State, Path},
     http::{header, StatusCode},
     response::{IntoResponse, Response, Html, Json},
-    routing::{get, post},
+    routing::{get, post, delete},
     Router,
 };
+use base64::{Engine as _, engine::general_purpose};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -13,10 +14,11 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH, Duration};
 use tokio::sync::RwLock;
 use tower_http::cors::CorsLayer;
-use tracing::{info, error, warn, debug};
+use tracing::{info, error};
 use tempfile::TempDir;
-use std::fs;
+use uuid::Uuid;
 use xxhash_rust::xxh64::xxh64;
+use std::fs;
 
 // ============================================================================
 // Data Structures
@@ -199,10 +201,170 @@ async fn cache_cleanup_task(cache: CompilationCache) {
     }
 }
 
+// ============================================================================
+// Webhook System
+// ============================================================================
+
+#[derive(Clone, Serialize, Deserialize)]
+struct WebhookSubscription {
+    id: String,
+    url: String,
+    events: Vec<String>,
+    created_at: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secret: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct CreateWebhookRequest {
+    url: String,
+    events: Vec<String>,
+    #[serde(default)]
+    secret: Option<String>,
+}
+
+#[derive(Serialize)]
+struct CreateWebhookResponse {
+    id: String,
+    url: String,
+    events: Vec<String>,
+    created_at: u64,
+}
+
+#[derive(Serialize)]
+struct WebhooksListResponse {
+    count: usize,
+    webhooks: Vec<WebhookSubscription>,
+}
+
+#[derive(Clone, Serialize)]
+struct WebhookPayload {
+    event: String,
+    timestamp: u64,
+    compile_time_ms: u64,
+    files_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pdf_base64: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+    cache_status: String,
+}
+
+/// Fire webhooks asynchronously (non-blocking)
+async fn fire_webhooks(
+    webhooks: Arc<RwLock<Vec<WebhookSubscription>>>,
+    event: String,
+    compile_time_ms: u64,
+    files_count: usize,
+    pdf_data: Option<Vec<u8>>,
+    error_msg: Option<String>,
+    cache_status: String,
+) {
+    let subs = webhooks.read().await;
+    let matching: Vec<_> = subs
+        .iter()
+        .filter(|w| w.events.contains(&event) || w.events.contains(&"*".to_string()))
+        .cloned()
+        .collect();
+    drop(subs);
+
+    if matching.is_empty() {
+        return;
+    }
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+
+    let pdf_base64 = pdf_data.map(|d| general_purpose::STANDARD.encode(&d));
+
+    let payload = WebhookPayload {
+        event: event.clone(),
+        timestamp,
+        compile_time_ms,
+        files_count,
+        pdf_base64,
+        error: error_msg,
+        cache_status,
+    };
+
+    let client = reqwest::Client::new();
+
+    for webhook in matching {
+        let client = client.clone();
+        let payload = payload.clone();
+        let url = webhook.url.clone();
+        
+        tokio::spawn(async move {
+            match client
+                .post(&url)
+                .header("Content-Type", "application/json")
+                .header("X-Tachyon-Event", &payload.event)
+                .json(&payload)
+                .timeout(Duration::from_secs(10))
+                .send()
+                .await
+            {
+                Ok(res) => {
+                    info!("🔔 Webhook delivered to {} - Status: {}", url, res.status());
+                }
+                Err(e) => {
+                    error!("⚠️ Webhook delivery failed to {}: {}", url, e);
+                }
+            }
+        });
+    }
+}
+
+// ============================================================================
+// Format Cache System (HMR v2 - Preamble Snapshotting)
+// Tracks preamble hashes to detect warm compilations
+// ============================================================================
+
+use std::collections::HashSet;
+
+#[derive(Clone)]
+struct FormatCache {
+    /// Track preambles we've seen (and thus Tectonic has cached)
+    seen_preambles: Arc<RwLock<HashSet<u64>>>,
+}
+
+impl FormatCache {
+    fn new() -> Self {
+        Self {
+            seen_preambles: Arc::new(RwLock::new(HashSet::new())),
+        }
+    }
+
+    /// Extract preamble from LaTeX content (everything before \begin{document})
+    fn extract_preamble(content: &str) -> Option<&str> {
+        content.find("\\begin{document}").map(|pos| &content[..pos])
+    }
+
+    /// Hash the preamble to create a unique format identifier
+    fn hash_preamble(preamble: &str) -> u64 {
+        xxh64(preamble.as_bytes(), 0)
+    }
+
+    /// Check if we've seen this preamble before (meaning Tectonic has it cached)
+    async fn check_and_mark(&self, preamble_hash: u64) -> bool {
+        let mut seen = self.seen_preambles.write().await;
+        if seen.contains(&preamble_hash) {
+            true // HIT - we've compiled with this preamble before
+        } else {
+            seen.insert(preamble_hash);
+            false // MISS - first time seeing this preamble
+        }
+    }
+}
+
 // App state shared across handlers
 #[derive(Clone)]
 struct AppState {
     compilation_cache: CompilationCache,
+    webhooks: Arc<RwLock<Vec<WebhookSubscription>>>,
+    format_cache: FormatCache,
 }
 
 // ============================================================================
@@ -262,13 +424,91 @@ async fn packages_handler() -> Json<PackagesResponse> {
     })
 }
 
+// ============================================================================
+// Webhook Handlers
+// ============================================================================
+
+/// POST /webhooks - Register a new webhook
+async fn create_webhook_handler(
+    State(state): State<AppState>,
+    Json(req): Json<CreateWebhookRequest>,
+) -> impl IntoResponse {
+    // Validate URL format
+    if !req.url.starts_with("http://") && !req.url.starts_with("https://") {
+        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+            "error": "Invalid URL. Must start with http:// or https://"
+        }))).into_response();
+    }
+
+    // Validate events
+    let valid_events = ["compile.success", "compile.error", "*"];
+    for event in &req.events {
+        if !valid_events.contains(&event.as_str()) {
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                "error": format!("Invalid event: {}. Valid events: compile.success, compile.error, *", event)
+            }))).into_response();
+        }
+    }
+
+    let webhook = WebhookSubscription {
+        id: Uuid::new_v4().to_string(),
+        url: req.url.clone(),
+        events: req.events.clone(),
+        created_at: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs(),
+        secret: req.secret,
+    };
+
+    let response = CreateWebhookResponse {
+        id: webhook.id.clone(),
+        url: webhook.url.clone(),
+        events: webhook.events.clone(),
+        created_at: webhook.created_at,
+    };
+
+    state.webhooks.write().await.push(webhook);
+    info!("\u{1F514} Webhook registered: {} -> {}", response.id, response.url);
+
+    (StatusCode::CREATED, Json(response)).into_response()
+}
+
+/// GET /webhooks - List all registered webhooks
+async fn list_webhooks_handler(
+    State(state): State<AppState>,
+) -> Json<WebhooksListResponse> {
+    let webhooks = state.webhooks.read().await;
+    Json(WebhooksListResponse {
+        count: webhooks.len(),
+        webhooks: webhooks.clone(),
+    })
+}
+
+/// DELETE /webhooks/:id - Remove a webhook
+async fn delete_webhook_handler(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> impl IntoResponse {
+    let mut webhooks = state.webhooks.write().await;
+    let original_len = webhooks.len();
+    webhooks.retain(|w| w.id != id);
+    
+    if webhooks.len() < original_len {
+        info!("\u{1F5D1}\u{FE0F} Webhook deleted: {}", id);
+        (StatusCode::OK, Json(serde_json::json!({"deleted": true, "id": id})))
+    } else {
+        (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "Webhook not found"})))
+    }
+}
+
 /// POST /validate - Validate LaTeX syntax without compiling
 async fn validate_handler(mut multipart: Multipart) -> impl IntoResponse {
     let mut tex_content = String::new();
     let mut files: HashMap<String, Vec<u8>> = HashMap::new();
 
     while let Some(field) = multipart.next_field().await.unwrap_or(None) {
-        let name = field.name().unwrap_or("").to_string();
+        let _name = field.name().unwrap_or("").to_string();
         let filename = field.file_name().unwrap_or("").to_string();
         let data = field.bytes().await.unwrap_or_default().to_vec();
         
@@ -332,7 +572,6 @@ async fn validate_handler(mut multipart: Multipart) -> impl IntoResponse {
 
     // Check for unbalanced braces
     let mut brace_count = 0i32;
-    let mut bracket_count = 0i32;
     for (line_num, line) in lines.iter().enumerate() {
         // Skip comments
         let content = line.split('%').next().unwrap_or("");
@@ -340,8 +579,6 @@ async fn validate_handler(mut multipart: Multipart) -> impl IntoResponse {
             match ch {
                 '{' => brace_count += 1,
                 '}' => brace_count -= 1,
-                '[' => bracket_count += 1,
-                ']' => bracket_count -= 1,
                 _ => {}
             }
         }
@@ -584,10 +821,28 @@ async fn compile_handler(
         None => return (StatusCode::BAD_REQUEST, "No .tex file found").into_response(),
     };
 
-    info!("Compiling {:?} ({} files received)...", main_tex_path, files_received);
+    // HMR v2: Detect preamble and check format cache
+    let mut hmr_status = "NONE";
+    let mut preamble_hash: u64 = 0;
+    
+    if let Ok(tex_content) = fs::read_to_string(&main_tex_path) {
+        if let Some(preamble) = FormatCache::extract_preamble(&tex_content) {
+            preamble_hash = FormatCache::hash_preamble(preamble);
+            let is_warm = state.format_cache.check_and_mark(preamble_hash).await;
+            if is_warm {
+                hmr_status = "HIT";
+                info!("⚡ HMR HIT: Reusing cached format {:016x}", preamble_hash);
+            } else {
+                hmr_status = "MISS";
+                info!("🔥 HMR MISS: First compile with preamble {:016x}", preamble_hash);
+            }
+        }
+    }
+
+    info!("Compiling {:?} ({} files received, HMR: {})...", main_tex_path, files_received, hmr_status);
     let start = std::time::Instant::now();
 
-    // Use Tectonic CLI
+    // Use Tectonic CLI (it has internal format caching)
     let result = std::process::Command::new("tectonic")
         .arg("-X")
         .arg("compile")
@@ -599,10 +854,10 @@ async fn compile_handler(
     let duration = start.elapsed();
     let compile_time_ms = duration.as_millis() as u64;
 
-    let response = match result {
+    let (response, webhook_data): (Response<axum::body::Body>, Option<(bool, Option<Vec<u8>>, Option<String>, String)>) = match result {
         Ok(output) => {
             if output.status.success() {
-                info!("Compiled in {:?}", duration);
+                info!("Compiled in {:?} (HMR: {})", duration, hmr_status);
                 
                 let pdf_name = main_tex_path.file_stem().expect("Failed to get file stem").to_str().unwrap();
                 let pdf_path = temp_dir.path().join(format!("{}.pdf", pdf_name));
@@ -612,22 +867,33 @@ async fn compile_handler(
                         // Store in cache for future requests
                         state.compilation_cache.put_pdf(input_hash, &pdf_data, compile_time_ms).await;
                         
-                        Response::builder()
+                        let response = Response::builder()
                             .status(StatusCode::OK)
                             .header(header::CONTENT_TYPE, "application/pdf")
                             .header("X-Compile-Time-Ms", compile_time_ms.to_string())
                             .header("X-Cache", "MISS")
+                            .header("X-HMR", hmr_status)
+                            .header("X-Preamble-Hash", format!("{:016x}", preamble_hash))
                             .header("X-Files-Received", files_received.to_string())
-                            .body(axum::body::Body::from(pdf_data))
-                            .unwrap()
+                            .body(axum::body::Body::from(pdf_data.clone()))
+                            .unwrap();
+                        
+                        (response, Some((true, Some(pdf_data), None, "MISS".to_string())))
                     }
-                    Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "PDF was not generated").into_response(),
+                    Err(_) => (
+                        (StatusCode::INTERNAL_SERVER_ERROR, "PDF was not generated").into_response(),
+                        Some((false, None, Some("PDF was not generated".to_string()), "MISS".to_string()))
+                    ),
                 }
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 let stdout = String::from_utf8_lossy(&output.stdout);
+                let error_msg = format!("LaTeX Error:\n{}\n{}", stderr, stdout);
                 error!("Compilation failed: {} {}", stderr, stdout);
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("LaTeX Error:\n{}\n{}", stderr, stdout)).into_response()
+                (
+                    (StatusCode::INTERNAL_SERVER_ERROR, error_msg.clone()).into_response(),
+                    Some((false, None, Some(error_msg), "MISS".to_string()))
+                )
             }
         }
         Err(_) => {
@@ -647,17 +913,23 @@ async fn compile_handler(
                     // Store in cache
                     state.compilation_cache.put_pdf(input_hash, &pdf_data, compile_time_ms).await;
                     
-                    Response::builder()
+                    let response = Response::builder()
                         .status(StatusCode::OK)
                         .header(header::CONTENT_TYPE, "application/pdf")
                         .header("X-Compile-Time-Ms", compile_time_ms.to_string())
                         .header("X-Cache", "MISS")
-                        .body(axum::body::Body::from(pdf_data))
-                        .unwrap()
+                        .body(axum::body::Body::from(pdf_data.clone()))
+                        .unwrap();
+                    
+                    (response, Some((true, Some(pdf_data), None, "MISS".to_string())))
                 }
                 Err(e) => {
+                    let error_msg = format!("LaTeX Error: {}", e);
                     error!("Compilation failed: {}", e);
-                    (StatusCode::INTERNAL_SERVER_ERROR, format!("LaTeX Error: {}", e)).into_response()
+                    (
+                        (StatusCode::INTERNAL_SERVER_ERROR, error_msg.clone()).into_response(),
+                        Some((false, None, Some(error_msg), "MISS".to_string()))
+                    )
                 }
             }
         }
@@ -666,7 +938,27 @@ async fn compile_handler(
     // Explicitly drop the temp_dir to ensure it's deleted before sending the response
     let path = temp_dir.path().to_path_buf();
     drop(temp_dir);
-    info!("🧹 Cleaned up temporary directory: {:?}", path);
+    info!("\u{1F9F9} Cleaned up temporary directory: {:?}", path);
+
+    // Clean up temp dir explicitly is already done by drop(temp_dir)
+
+
+    // Fire webhooks asynchronously (non-blocking)
+    if let Some((success, pdf_data, error_msg, cache_status)) = webhook_data {
+        let event = if success { "compile.success".to_string() } else { "compile.error".to_string() };
+        let webhooks = state.webhooks.clone();
+        tokio::spawn(async move {
+            fire_webhooks(
+                webhooks,
+                event,
+                compile_time_ms,
+                files_received,
+                pdf_data,
+                error_msg,
+                cache_status,
+            ).await;
+        });
+    }
 
     response
 }
@@ -711,13 +1003,27 @@ async fn main() {
         info!("📦 PDF cache DISABLED (set PDF_CACHE_ENABLED=true to enable)");
     }
 
-    let state = AppState { compilation_cache };
+    // Initialize webhooks storage
+    let webhooks: Arc<RwLock<Vec<WebhookSubscription>>> = Arc::new(RwLock::new(Vec::new()));
+
+    // Initialize Format Cache for HMR v2
+    let format_cache = FormatCache::new();
+    info!("⚡ Format Cache initialized (in-memory preamble tracking)");
+
+    let state = AppState { 
+        compilation_cache,
+        webhooks,
+        format_cache,
+    };
 
     let app = Router::new()
         .route("/", get(index_handler))
         .route("/compile", post(compile_handler))
         .route("/validate", post(validate_handler))
         .route("/packages", get(packages_handler))
+        .route("/webhooks", post(create_webhook_handler))
+        .route("/webhooks", get(list_webhooks_handler))
+        .route("/webhooks/:id", delete(delete_webhook_handler))
         .with_state(state)
         .layer(DefaultBodyLimit::max(50 * 1024 * 1024))
         .layer(CorsLayer::permissive());
@@ -725,6 +1031,8 @@ async fn main() {
     let addr = "0.0.0.0:8080";
     info!("🚀 Tachyon-Tex listening on {}", addr);
     info!("   Endpoints: POST /compile, POST /validate, GET /packages");
+    info!("   Webhooks:  POST /webhooks, GET /webhooks, DELETE /webhooks/:id");
+    info!("   HMR v2:    Preamble format caching enabled");
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
 }
