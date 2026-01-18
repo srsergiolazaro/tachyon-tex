@@ -1,4 +1,5 @@
 use axum::{
+    extract::DefaultBodyLimit,
     routing::{get, post},
     Router,
 };
@@ -7,7 +8,6 @@ use tokio::sync::RwLock;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 use tower_http::cors::CorsLayer;
-use tower_http::limit::RequestBodyLimitLayer;
 use std::time::Duration;
 
 mod models;
@@ -69,7 +69,7 @@ async fn main() {
         .route("/validate", post(validate_handler))
         .route("/ws", get(ws_route_handler))
         .layer(CorsLayer::permissive())
-        .layer(RequestBodyLimitLayer::new(50 * 1024 * 1024)) // 50MB limit
+        .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100MB limit
         .with_state(state);
 
     // 5. Start Server

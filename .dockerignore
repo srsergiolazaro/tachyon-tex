@@ -1,8 +1,11 @@
 target/
-tests/
+qtex/node_modules/
 .git/
-.dockerignore
-node_modules/
+tectonic-source/
+*.zip
+*.log
+*.aux
+*.out
 *.pdf
-warmup/
-dist/
+ps1
+sh
