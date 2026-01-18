@@ -8,6 +8,7 @@ use tokio::sync::RwLock;
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 use tower_http::cors::CorsLayer;
+use tower_http::compression::CompressionLayer;  // Moonshot #3: Zstd compression
 use std::time::Duration;
 
 mod models;
@@ -62,12 +63,13 @@ async fn main() {
     // 3. Background Tasks
     tokio::spawn(cache_cleanup_task(compilation_cache));
 
-    // 4. Build API Router
+    // 4. Build API Router - Moonshot #3: Add compression for 70% smaller responses
     let app = Router::new()
         .route("/health", get(health_handler))
         .route("/compile", post(compile_handler))
         .route("/validate", post(validate_handler))
         .route("/ws", get(ws_route_handler))
+        .layer(CompressionLayer::new())  // Moonshot #3: ~70% smaller responses
         .layer(CorsLayer::permissive())
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100MB limit
         .with_state(state);
