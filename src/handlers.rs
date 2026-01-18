@@ -61,8 +61,14 @@ pub async fn compile_handler(
         if let Ok(data) = field.bytes().await {
             files_received += 1;
             let path = temp_dir.path().join(&file_name);
-            if let Some(parent) = path.parent() { fs::create_dir_all(parent).ok(); }
-            fs::write(&path, &data).ok();
+            if let Some(parent) = path.parent() { 
+                if let Err(e) = fs::create_dir_all(parent) {
+                    return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create directory: {}", e)).into_response();
+                }
+            }
+            if let Err(e) = fs::write(&path, &data) {
+                return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file {}: {}", file_name, e)).into_response();
+            }
             all_input_data.extend_from_slice(&data);
             if file_name.ends_with(".tex") {
                 main_tex_data = data.to_vec();
