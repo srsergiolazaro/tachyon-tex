@@ -13,7 +13,7 @@ use base64::{Engine as _, engine::general_purpose};
 use xxhash_rust::xxh64::xxh64;
 
 use tectonic::driver::{ProcessingSessionBuilder, OutputFormat, PassSetting};
-use tectonic::status::NoopStatusBackend;
+use tectonic::status::{StatusBackend, MessageKind, NoopStatusBackend};
 
 use crate::models::*;
 use crate::services::*;
@@ -81,6 +81,7 @@ pub async fn compile_handler(
             .header(header::CONTENT_TYPE, "application/pdf")
             .header("X-Compile-Time-Ms", original_time.to_string())
             .header("X-Cache", "HIT")
+            .header("X-Files-Received", files_received.to_string())
             .body(axum::body::Body::from(cached_pdf))
             .unwrap();
     }
@@ -101,9 +102,8 @@ pub async fn compile_handler(
     info!("Compiling {:?} ({} files, HMR: {})...", main_tex_path, files_received, hmr_status);
     let start = Instant::now();
 
-    // Perform compilation in a scoped block to ensure non-Send bundle is dropped before await points
-    let result = {
-        let mut status = NoopStatusBackend::default();
+    let (result, logs) = {
+        let mut status = CapturingStatusBackend::new();
         let bundle_res = state.config.default_bundle(false, &mut status);
         
         match bundle_res {
@@ -119,15 +119,17 @@ pub async fn compile_handler(
                     .output_format(OutputFormat::Pdf)
                     .pass(PassSetting::Default);
 
-                (|| -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+                let res = (|| -> Result<Vec<u8>, Box<dyn std::error::Error>> {
                     let mut sess = sb.create(&mut status).map_err(|e| e.to_string())?;
                     sess.run(&mut status).map_err(|e| e.to_string())?;
                     let pdf_name = main_tex_path.file_stem().expect("stem").to_str().unwrap();
                     let pdf_path = temp_dir.path().join(format!("{}.pdf", pdf_name));
                     Ok(fs::read(&pdf_path)?)
-                })().map_err(|e| e.to_string())
+                })().map_err(|e| e.to_string());
+                
+                (res, status.get_logs())
             },
-            Err(e) => Err(format!("Bundle error: {}", e))
+            Err(e) => (Err(format!("Bundle error: {}", e)), status.get_logs())
         }
     };
 
@@ -142,10 +144,11 @@ pub async fn compile_handler(
                 .header("X-Compile-Time-Ms", compile_time_ms.to_string())
                 .header("X-Cache", "MISS")
                 .header("X-HMR", hmr_status)
+                .header("X-Files-Received", files_received.to_string())
                 .body(axum::body::Body::from(pdf_data))
                 .unwrap()
         }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("LaTeX Error: {}", e)).into_response()
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("LaTeX Error: {}\n\nLogs:\n{}", e, logs)).into_response()
     }
 }
 
@@ -211,8 +214,8 @@ pub async fn handle_socket(mut socket: WebSocket, state: AppState) {
             let main_path = temp_dir.path().join(&main_tex);
             let start = Instant::now();
 
-            let result = {
-                let mut status = NoopStatusBackend::default();
+            let (result, logs) = {
+                let mut status = CapturingStatusBackend::new();
                 let bundle_res = state.config.default_bundle(false, &mut status);
                 
                 match bundle_res {
@@ -228,15 +231,16 @@ pub async fn handle_socket(mut socket: WebSocket, state: AppState) {
                             .output_format(OutputFormat::Pdf)
                             .pass(PassSetting::Default);
 
-                        (|| -> Result<Vec<u8>, String> {
+                        let res = (|| -> Result<Vec<u8>, String> {
                             let mut sess = sb.create(&mut status).map_err(|e| e.to_string())?;
                             sess.run(&mut status).map_err(|e| e.to_string())?;
                             let pdf_name = main_path.file_stem().unwrap().to_str().unwrap();
                             let pdf_path = temp_dir.path().join(format!("{}.pdf", pdf_name));
                             fs::read(&pdf_path).map_err(|e| e.to_string())
-                        })()
+                        })();
+                        (res, status.get_logs())
                     },
-                    Err(e) => Err(format!("Bundle error: {}", e))
+                    Err(e) => (Err(format!("Bundle error: {}", e)), status.get_logs())
                 }
             };
 
@@ -251,9 +255,48 @@ pub async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     }).to_string())).await;
                 }
                 Err(e) => {
-                    let _ = socket.send(Message::Text(serde_json::json!({"type": "compile_error", "error": e}).to_string())).await;
+                    let full_error = format!("{}\n\nLogs:\n{}", e, logs);
+                    let _ = socket.send(Message::Text(serde_json::json!({"type": "compile_error", "error": full_error}).to_string())).await;
                 }
             }
+        }
+    }
+}
+
+// ============================================================================
+// Status Backend
+// ============================================================================
+
+struct CapturingStatusBackend {
+    logs: Vec<String>,
+}
+
+impl CapturingStatusBackend {
+    fn new() -> Self {
+        Self { logs: Vec::new() }
+    }
+    
+    fn get_logs(&self) -> String {
+        self.logs.join("\n")
+    }
+}
+
+impl StatusBackend for CapturingStatusBackend {
+    fn report(&mut self, kind: MessageKind, args: std::fmt::Arguments<'_>, err: Option<&anyhow::Error>) {
+        let prefix = match kind {
+            MessageKind::Note => "Note",
+            MessageKind::Warning => "Warning",
+            MessageKind::Error => "Error",
+        };
+        self.logs.push(format!("[{}] {}", prefix, args));
+        if let Some(e) = err {
+            self.logs.push(format!("Caused by: {}", e));
+        }
+    }
+
+    fn dump_error_logs(&mut self, output: &[u8]) {
+        if let Ok(s) = std::str::from_utf8(output) {
+            self.logs.push(s.to_string());
         }
     }
 }
