@@ -56,23 +56,39 @@ pub async fn compile_handler(
         Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create temp dir: {}", e)).into_response(),
     };
 
-    while let Ok(Some(field)) = multipart.next_field().await {
+    loop {
+        let field = match multipart.next_field().await {
+            Ok(Some(field)) => field,
+            Ok(None) => break,
+            Err(e) => {
+                error!("Multipart error: {}", e);
+                return (StatusCode::BAD_REQUEST, format!("Multipart error: {}", e)).into_response();
+            }
+        };
+
         let file_name = field.file_name().unwrap_or("file.tex").to_string();
-        if let Ok(data) = field.bytes().await {
-            files_received += 1;
-            let path = temp_dir.path().join(&file_name);
-            if let Some(parent) = path.parent() { 
-                if let Err(e) = fs::create_dir_all(parent) {
-                    return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create directory: {}", e)).into_response();
+        
+        match field.bytes().await {
+            Ok(data) => {
+                files_received += 1;
+                let path = temp_dir.path().join(&file_name);
+                if let Some(parent) = path.parent() { 
+                    if let Err(e) = fs::create_dir_all(parent) {
+                        return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create directory: {}", e)).into_response();
+                    }
                 }
-            }
-            if let Err(e) = fs::write(&path, &data) {
-                return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file {}: {}", file_name, e)).into_response();
-            }
-            all_input_data.extend_from_slice(&data);
-            if file_name.ends_with(".tex") {
-                main_tex_data = data.to_vec();
-                main_tex_path_relative = file_name.clone();
+                if let Err(e) = fs::write(&path, &data) {
+                    return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to write file {}: {}", file_name, e)).into_response();
+                }
+                all_input_data.extend_from_slice(&data);
+                if file_name.ends_with(".tex") {
+                    main_tex_data = data.to_vec();
+                    main_tex_path_relative = file_name.clone();
+                }
+            },
+            Err(e) => {
+                error!("Failed to read chunks for file {}: {}", file_name, e);
+                return (StatusCode::BAD_REQUEST, format!("Failed to read file {}: {}", file_name, e)).into_response();
             }
         }
     }
@@ -162,7 +178,10 @@ pub async fn ws_route_handler(
     ws: axum::extract::ws::WebSocketUpgrade,
     State(state): State<AppState>,
 ) -> Response {
-    ws.on_upgrade(move |socket| handle_socket(socket, state))
+    ws
+        .max_frame_size(128 * 1024 * 1024)
+        .max_message_size(128 * 1024 * 1024)
+        .on_upgrade(move |socket| handle_socket(socket, state))
 }
 
 pub async fn handle_socket(mut socket: WebSocket, state: AppState) {
