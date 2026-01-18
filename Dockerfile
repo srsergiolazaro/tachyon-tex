@@ -62,6 +62,9 @@ COPY --from=builder /usr/local/cargo/bin/tectonic /usr/bin/tectonic
 # Copy Tectonic cache
 COPY --from=builder /root/.cache/Tectonic /root/.cache/Tectonic
 
+# Copy public static files
+COPY --from=builder /app/public /app/public
+
 ENV XDG_CACHE_HOME=/root/.cache
 
 EXPOSE 8080

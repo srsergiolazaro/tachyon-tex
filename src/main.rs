@@ -9,6 +9,7 @@ use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 use tower_http::cors::CorsLayer;
 use tower_http::compression::CompressionLayer;  // Moonshot #3: Zstd compression
+use tower_http::services::ServeDir;
 use std::time::Duration;
 
 mod models;
@@ -69,6 +70,7 @@ async fn main() {
         .route("/compile", post(compile_handler))
         .route("/validate", post(validate_handler))
         .route("/ws", get(ws_route_handler))
+        .fallback_service(ServeDir::new("public"))  // Serve static files from /public
         .layer(CompressionLayer::new())  // Moonshot #3: ~70% smaller responses
         .layer(CorsLayer::permissive())
         .layer(DefaultBodyLimit::max(100 * 1024 * 1024)) // 100MB limit

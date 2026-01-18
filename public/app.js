@@ -30,6 +30,7 @@ let debounceTimer;
 let activeFrame = frame1;
 let inactiveFrame = frame2;
 let currentUrl = null;
+let currentPdfBase64 = null;  // Store the PDF data for export
 let errorTimeout;
 
 // UI Initialization
@@ -136,6 +137,7 @@ function connect() {
 }
 
 function renderPDF(base64) {
+    currentPdfBase64 = base64;  // Store for export
     const binary = atob(base64);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
@@ -177,11 +179,30 @@ function showError(message) {
 }
 
 function exportPDF() {
-    if (currentUrl) {
+    if (currentPdfBase64) {
+        // Create fresh blob from stored base64
+        const binary = atob(currentPdfBase64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+            bytes[i] = binary.charCodeAt(i);
+        }
+
+        // Use File object instead of Blob for better Chrome compatibility
+        const file = new File([bytes], 'document.pdf', { type: 'application/pdf' });
+        const url = URL.createObjectURL(file);
+
         const a = document.createElement('a');
-        a.href = currentUrl;
+        a.href = url;
         a.download = 'document.pdf';
-        a.click();
+        a.style.display = 'none';
+        document.body.appendChild(a);
+
+        // Use a small timeout for Chrome
+        setTimeout(() => {
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }, 10);
     }
 }
 
