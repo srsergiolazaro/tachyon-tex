@@ -11,6 +11,7 @@ use tracing::{info, error};
 use tempfile::TempDir;
 use base64::{Engine as _, engine::general_purpose};
 use xxhash_rust::xxh64::xxh64;
+use regex::Regex;
 
 use tectonic::driver::{ProcessingSessionBuilder, OutputFormat, PassSetting};
 use tectonic::status::{StatusBackend, MessageKind, NoopStatusBackend};
@@ -280,8 +281,15 @@ pub async fn handle_socket(mut socket: WebSocket, state: AppState) {
                     }).to_string())).await;
                 }
                 Err(e) => {
-                    let full_error = format!("{}\n\nLogs:\n{}", e, logs);
-                    let _ = socket.send(Message::Text(serde_json::json!({"type": "compile_error", "error": full_error}).to_string())).await;
+                    error!("Compilation failed logs:\n{}", logs); // Log raw output for debugging
+                    let parsed = parse_log_errors(&logs);
+                    let response = serde_json::json!({
+                        "type": "compile_error",
+                        "error": e.to_string(),
+                        "logs": logs,
+                        "details": parsed
+                    });
+                    let _ = socket.send(Message::Text(response.to_string())).await;
                 }
             }
         }
@@ -324,4 +332,74 @@ impl StatusBackend for CapturingStatusBackend {
             self.logs.push(s.to_string());
         }
     }
+}
+
+fn parse_log_errors(log: &str) -> Vec<serde_json::Value> {
+    let mut errors = Vec::new();
+    // Match structure: [Error] filename.tex:9: Message...
+    let direct_regex = Regex::new(r"^\[Error\] ([^:]+):(\d+): (.*)").unwrap();
+    
+    // Match standard TeX errors "! ..." AND Tectonic "error: ..."
+    let error_regex = Regex::new(r"^(?:!|error:)(.*)").unwrap();
+    let line_regex = Regex::new(r"^l\.(\d+)(.*)").unwrap();
+    let file_regex = Regex::new(r"\(([^)\n]+\.(?:tex|sty|cls))").unwrap();
+    
+    let lines: Vec<&str> = log.lines().collect();
+    
+    for (i, line) in lines.iter().enumerate() {
+        // 1. Try Direct Pattern (Best Quality)
+        if let Some(caps) = direct_regex.captures(line) {
+            let file = caps.get(1).unwrap().as_str().trim().to_string();
+            let line_num: u32 = caps.get(2).unwrap().as_str().parse().unwrap_or(0);
+            let message = caps.get(3).unwrap().as_str().trim().to_string();
+
+            let mut error_obj = serde_json::Map::new();
+            error_obj.insert("file".to_string(), serde_json::Value::String(file));
+            error_obj.insert("line".to_string(), serde_json::Value::Number(serde_json::Number::from(line_num)));
+            error_obj.insert("message".to_string(), serde_json::Value::String(message));
+            
+            errors.push(serde_json::Value::Object(error_obj));
+            continue;
+        }
+
+        // 2. Try Standard TeX Pattern (Fallback)
+        if let Some(caps) = error_regex.captures(line) {
+            let message = caps.get(1).unwrap().as_str().trim().to_string();
+            // Ignore generic "halted" messages which aren't specific errors
+            if message.contains("halted on potentially-recoverable error") { continue; }
+
+            let mut error_obj = serde_json::Map::new();
+            error_obj.insert("message".to_string(), serde_json::Value::String(message));
+            
+            // Look ahead for line number (heuristic: next 10 lines)
+            for j in i+1..std::cmp::min(i + 10, lines.len()) {
+                if let Some(l_caps) = line_regex.captures(lines[j]) {
+                    if let Ok(line_num) = l_caps.get(1).unwrap().as_str().parse::<u32>() {
+                         error_obj.insert("line".to_string(), serde_json::Value::Number(serde_json::Number::from(line_num)));
+                         let context = l_caps.get(2).map(|m| m.as_str().trim().to_string()).unwrap_or_default();
+                         error_obj.insert("context".to_string(), serde_json::Value::String(context));
+                    }
+                    break;
+                }
+            }
+            
+            // Look backwards for filename (heuristic: find last file opening pattern)
+            let mut found_file = "unknown".to_string();
+            for j in (0..i).rev() {
+                if let Some(f_caps) = file_regex.captures(lines[j]) {
+                    let mut possible_file = f_caps.get(1).unwrap().as_str().to_string();
+                     if let Some(idx) = possible_file.find(' ') {
+                        possible_file = possible_file[..idx].to_string();
+                    }
+                    found_file = possible_file;
+                    break;
+                }
+            }
+            error_obj.insert("file".to_string(), serde_json::Value::String(found_file));
+            
+            errors.push(serde_json::Value::Object(error_obj));
+        }
+    }
+    
+    errors
 }

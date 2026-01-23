@@ -123,6 +123,7 @@ function connect() {
             statusDot.className = 'status-dot connected';
             statusText.textContent = 'Synced';
         } else if (data.type === 'compile_error') {
+            console.error("Compile Error:", data); // Log full structured error for user verification
             statusDot.className = 'status-dot';
             statusText.textContent = 'Error';
             showError('LaTeX Error: ' + data.error.substring(0, 300));
