@@ -22,6 +22,7 @@ WORKDIR /app
 
 # 1. Cache dependencies
 COPY Cargo.toml Cargo.lock* ./
+COPY rust-sdk ./rust-sdk
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release
 RUN rm -rf src

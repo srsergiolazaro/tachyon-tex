@@ -300,16 +300,16 @@ pub async fn handle_socket(mut socket: WebSocket, state: AppState) {
 // Status Backend
 // ============================================================================
 
-struct CapturingStatusBackend {
+pub struct CapturingStatusBackend {
     logs: Vec<String>,
 }
 
 impl CapturingStatusBackend {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self { logs: Vec::new() }
     }
     
-    fn get_logs(&self) -> String {
+    pub fn get_logs(&self) -> String {
         self.logs.join("\n")
     }
 }

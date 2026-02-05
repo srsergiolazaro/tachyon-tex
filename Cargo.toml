@@ -24,6 +24,10 @@ reqwest = { version = "0.12", features = ["json"] }
 uuid = { version = "1.6", features = ["v4"] }
 base64 = "0.22"
 anyhow = "1.0"
+rmcp = { path = "./rust-sdk/crates/rmcp", features = ["server", "transport-streamable-http-server"] }
+rmcp-macros = { path = "./rust-sdk/crates/rmcp-macros" }
+schemars = "0.8"
+tokio-util = "0.7"
 
 [profile.release]
 opt-level = 3       # Max performance (Speed)

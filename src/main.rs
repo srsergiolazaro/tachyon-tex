@@ -15,6 +15,7 @@ use std::time::Duration;
 mod models;
 mod services;
 mod handlers;
+mod mcp;
 
 use crate::models::*;
 use crate::services::*;
@@ -64,12 +65,25 @@ async fn main() {
     // 3. Background Tasks
     tokio::spawn(cache_cleanup_task(compilation_cache));
 
-    // 4. Build API Router - Moonshot #3: Add compression for 70% smaller responses
+    // 4. MCP Setup
+    let ct = tokio_util::sync::CancellationToken::new();
+    let mcp_state = state.clone();
+    let mcp_service = rmcp::transport::streamable_http_server::StreamableHttpService::new(
+        move || Ok(crate::mcp::TachyonMcpServer::new(mcp_state.clone())),
+        rmcp::transport::streamable_http_server::session::local::LocalSessionManager::default().into(),
+        rmcp::transport::streamable_http_server::StreamableHttpServerConfig {
+            cancellation_token: ct.child_token(),
+            ..Default::default()
+        },
+    );
+
+    // 5. Build API Router - Moonshot #3: Add compression for 70% smaller responses
     let app = Router::new()
         .route("/health", get(health_handler))
         .route("/compile", post(compile_handler))
         .route("/validate", post(validate_handler))
         .route("/ws", get(ws_route_handler))
+        .nest_service("/mcp", mcp_service)
         .fallback_service(ServeDir::new("public"))  // Serve static files from /public
         .layer(CompressionLayer::new())  // Moonshot #3: ~70% smaller responses
         .layer(CorsLayer::permissive())
