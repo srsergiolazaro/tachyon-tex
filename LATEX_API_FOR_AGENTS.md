@@ -38,6 +38,17 @@ Es el endpoint principal. Convierte LaTeX a PDF.
 ### 3. `GET https://latex.taptapp.xyz/packages` — Inventario de Capacidades
 Consulta este endpoint para saber qué paquetes básicos están pre-cargados en cache. Si un paquete no está aquí, Tectonic intentará descargarlo al vuelo (lo cual añade latencia de red).
 
+### 4. `MCP (Model Context Protocol)` — Interacción Nativa
+
+Si tu entorno soporta MCP, puedes conectar directamente con el servidor.
+
+**Tools Disponibles:**
+- **`compile`**:
+  - **Argumentos**:
+    - `main` (string, opcional): Nombre del archivo principal (ej: "main.tex").
+    - `files` (map<string, string>): Diccionario de archivos (nombre -> contenido).
+  - **Retorno**: Texto con el resultado y (si es exitoso) mención de que está en caché.
+
 ## 🛠️ Workflow de Instrucción (Cómo debe actuar un Agente)
 
 1. **Paso 1 (Validación Local)**: Genera el código LaTeX.

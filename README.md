@@ -145,6 +145,22 @@ curl http://localhost:8080/packages
 }
 ```
 
+------
+
+### `GET /mcp` — Model Context Protocol
+
+Tachyon-Tex implements the **Model Context Protocol (MCP)**, allowing AI agents to directly interact with the compilation engine using standardized tools.
+
+**Supported Tools:**
+- `compile`: Compiles LaTeX files into a PDF. Accepts a `main` file and a dictionary of `files`.
+
+**Transports:**
+- **SSE / HTTP**: Connect via `http://localhost:8080/mcp/sse` (Server-Sent Events) for persistent sessions.
+- **Stdio**: Run the binary with `--mcp` flag to use standard input/output (perfect for local agent integration).
+  ```bash
+  tachyon-tex --mcp
+  ```
+
 ---
 
 ### Web Interface
