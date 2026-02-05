@@ -4,7 +4,11 @@ use std::collections::HashMap;
 #[derive(Deserialize)]
 #[serde(untagged)]
 pub enum WsFileContent {
+    /// Plain text content (for .tex, .sty, .cls, .bib files)
     Raw(String),
+    /// Explicit base64-encoded binary content (for images, fonts, etc.)
+    Binary { base64: String },
+    /// Reference to previously uploaded blob by hash
     HashRef { #[serde(rename = "type")] content_type: String, value: String },
 }
 

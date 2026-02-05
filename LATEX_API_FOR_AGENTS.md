@@ -49,6 +49,42 @@ Si tu entorno soporta MCP, puedes conectar directamente con el servidor.
     - `files` (map<string, string>): Diccionario de archivos (nombre -> contenido).
   - **Retorno**: Texto con el resultado y (si es exitoso) mención de que está en caché.
 
+---
+
+### 5. `WebSocket wss://latex.taptapp.xyz/ws` — Streaming Bidireccional
+
+Conexión persistente para compilación en tiempo real. Ideal para editores live.
+
+**Formato de Mensaje (JSON):**
+```json
+{
+  "main": "main.tex",
+  "files": {
+    "main.tex": "\\documentclass{article}...",
+    "style.sty": "\\ProvidesPackage{style}...",
+    "image.png": {"base64": "iVBORw0KGgoAAAANSUhEUg..."},
+    "cached.pdf": {"type": "hash", "value": "a1b2c3d4e5f6"}
+  }
+}
+```
+
+**Tipos de Contenido:**
+| Formato | Uso | Ejemplo |
+|---------|-----|---------|
+| `"texto"` | Archivos de texto (.tex, .sty, .bib) | `"main.tex": "\\documentclass..."` |
+| `{"base64": "..."}` | **Binarios** (imágenes, fonts) | `"img.png": {"base64": "iVBOR..."}` |
+| `{"type": "hash", "value": "..."}` | Referencia a blob cacheado | `"big.pdf": {"type": "hash", "value": "abc123"}` |
+
+**Respuesta Exitosa:**
+```json
+{"type": "compile_success", "compile_time_ms": 450, "pdf": "JVBERi0xLjQ...", "blobs": {"image.png": "hash123"}}
+```
+
+**Respuesta de Error:**
+```json
+{"type": "compile_error", "error": "Undefined control sequence", "logs": "...", "details": [...]}
+```
+
 ## 🛠️ Workflow de Instrucción (Cómo debe actuar un Agente)
 
 1. **Paso 1 (Validación Local)**: Genera el código LaTeX.

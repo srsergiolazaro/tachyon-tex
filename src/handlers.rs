@@ -192,20 +192,32 @@ pub async fn handle_socket(mut socket: WebSocket, state: AppState) {
             for (name, content) in &project.files {
                 let path = temp_dir.path().join(name);
                 if let Some(parent) = path.parent() { fs::create_dir_all(parent).ok(); }
+                
                 match content {
                     WsFileContent::Raw(data) => {
-                        if name.ends_with(".tex") || name.ends_with(".sty") || name.ends_with(".cls") {
-                            let _ = fs::write(&path, data);
-                        } else if let Ok(binary) = general_purpose::STANDARD.decode(data) {
-                            let hash = xxh64(&binary, 0);
-                            let hash_hex = format!("{:x}", hash);
-                            state.blob_store.put(hash_hex.clone(), binary.clone()).await;
-                            uploaded_hashes.insert(name.clone(), hash_hex); // Store hash to return to client
-                            let _ = fs::write(&path, binary);
-                        } else { let _ = fs::write(&path, data); }
+                        // Text files: write as-is (UTF-8)
+                        let _ = fs::write(&path, data);
+                    },
+                    WsFileContent::Binary { base64: data } => {
+                        // Binary files: decode base64 first
+                        match general_purpose::STANDARD.decode(data) {
+                            Ok(binary) => {
+                                let hash = xxh64(&binary, 0);
+                                let hash_hex = format!("{:x}", hash);
+                                state.blob_store.put(hash_hex.clone(), binary.clone()).await;
+                                uploaded_hashes.insert(name.clone(), hash_hex);
+                                let _ = fs::write(&path, binary);
+                            },
+                            Err(e) => {
+                                error!("Failed to decode base64 for {}: {}", name, e);
+                                // Skip this file but continue with others
+                            }
+                        }
                     },
                     WsFileContent::HashRef { value, .. } => {
-                        if let Some(binary) = state.blob_store.get(value).await { let _ = fs::write(&path, binary); }
+                        if let Some(binary) = state.blob_store.get(value).await { 
+                            let _ = fs::write(&path, binary); 
+                        }
                     }
                 }
             }
