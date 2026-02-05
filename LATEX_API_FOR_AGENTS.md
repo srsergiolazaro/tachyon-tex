@@ -72,8 +72,9 @@ Conexión persistente para compilación en tiempo real. Ideal para editores live
 | Formato | Uso | Ejemplo |
 |---------|-----|---------|
 | `"texto"` | Archivos de texto (.tex, .sty, .bib) | `"main.tex": "\\documentclass..."` |
-| `{"base64": "..."}` | **Binarios** (imágenes, fonts) | `"img.png": {"base64": "iVBOR..."}` |
-| `{"type": "hash", "value": "..."}` | Referencia a blob cacheado | `"big.pdf": {"type": "hash", "value": "abc123"}` |
+| `{"base64": "..."}` | Binarios integrados | `"img.png": {"base64": "iVBOR..."}` |
+| `{"url": "...", "no_cache": true}` | **Descarga Remota (Force Refresh)** | `{"url": "...", "no_cache": true}` |
+| `{"type": "hash"}` | Referencia a blob interno | `"big.pdf": {"type": "hash", "..."}` |
 
 **Respuesta Exitosa:**
 ```json

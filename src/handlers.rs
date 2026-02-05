@@ -162,6 +162,28 @@ pub async fn ws_route_handler(
 pub async fn handle_socket(mut socket: WebSocket, state: AppState) {
     info!("\u{1F50C} WebSocket connection established");
     
+    // Moonshot #4: Persistent Worker Pool
+    // Create the workspace ONCE per connection.
+    // This preserves .aux, .fmt, and downloaded assets between compilations.
+    let temp_base = if std::path::Path::new("/dev/shm").exists() {
+        let path = PathBuf::from("/dev/shm/tachyon-compilations");
+        fs::create_dir_all(&path).ok();
+        path
+    } else {
+        std::env::temp_dir()
+    };
+
+    let temp_dir = match TempDir::new_in(&temp_base) {
+        Ok(d) => {
+            info!("🔥 Hot Worker initialized at {:?}", d.path());
+            d
+        },
+        Err(e) => {
+             error!("Failed to create hot worker: {}", e);
+             return; // Close connection if we can't create workspace
+        }
+    };
+    
     while let Some(msg_res) = socket.recv().await {
         let msg = match msg_res {
             Ok(Message::Text(t)) => t,
@@ -170,24 +192,34 @@ pub async fn handle_socket(mut socket: WebSocket, state: AppState) {
 
         if let Ok(project) = serde_json::from_str::<WsProject>(&msg) {
             info!("\u{1F4D1} Live Project Compile: {} files", project.files.len());
-            
-            let temp_base = if std::path::Path::new("/dev/shm").exists() {
-                let path = PathBuf::from("/dev/shm/tachyon-compilations");
-                fs::create_dir_all(&path).ok();
-                path
-            } else {
-                std::env::temp_dir()
-            };
-
-            let temp_dir = match TempDir::new_in(&temp_base) {
-                Ok(d) => d,
-                Err(e) => {
-                    let _ = socket.send(Message::Text(serde_json::json!({"type": "compile_error", "error": e.to_string()}).to_string())).await;
-                    continue;
-                }
-            };
+            // TempDir is now persistent (defined outside loop)
 
             let mut uploaded_hashes = std::collections::HashMap::new();
+
+            // Moonshot #5: Workspace Synchronization (Cleanup)
+            // The JSON request is the Source of Truth.
+            // If a file exists in the workspace but is NOT in the request, delete it.
+            // Exception: Keep compilation artifacts (.aux, .log, .pdf, .fmt, .toc, .out) to preserve Hot State.
+            if let Ok(entries) = fs::read_dir(temp_dir.path()) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_file() {
+                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                            // Don't delete if it's in the new list OR if it's a kept artifact
+                            let is_in_project = project.files.contains_key(name);
+                            let is_artifact = name.ends_with(".aux") || name.ends_with(".log") || 
+                                              name.ends_with(".toc") || name.ends_with(".out") || 
+                                              name.ends_with(".pdf") || name.ends_with(".fls") ||
+                                              name.ends_with(".fdb_latexmk") || name.ends_with(".synctex.gz");
+
+                            if !is_in_project && !is_artifact {
+                                info!("🗑️ Sync Cleanup: Removing orphaned file '{}'", name);
+                                let _ = fs::remove_file(path);
+                            }
+                        }
+                    }
+                }
+            }
 
             for (name, content) in &project.files {
                 let path = temp_dir.path().join(name);
@@ -212,6 +244,53 @@ pub async fn handle_socket(mut socket: WebSocket, state: AppState) {
                                 error!("Failed to decode base64 for {}: {}", name, e);
                                 // Skip this file but continue with others
                             }
+                        }
+                    },
+                    WsFileContent::Url { url, no_cache, hash } => {
+                        // Moonshot #3: Remote URL Fetching with Smart Caching
+                        let mut should_fetch = true;
+                        
+                        // Check local cache
+                        if path.exists() {
+                            if *no_cache {
+                                should_fetch = true;
+                                info!("🌍 Cache invalidation (forced): {}", name);
+                            } else if let Some(expected_hash) = &hash {
+                                // Smart Hash Check
+                                if let Ok(bytes) = fs::read(&path) {
+                                    let local_hash = format!("{:x}", xxh64(&bytes, 0));
+                                    if &local_hash == expected_hash {
+                                        should_fetch = false;
+                                        info!("📦 Cache HIT (hash match): {}", name);
+                                    } else {
+                                        info!("🔄 Cache invalidation (hash mismatch): {} (L:{}, R:{})", name, local_hash, expected_hash);
+                                        should_fetch = true;
+                                    }
+                                } else {
+                                    should_fetch = true; // Read failed, re-fetch
+                                }
+                            } else {
+                                // Default: Exists -> Hit
+                                should_fetch = false;
+                                info!("📦 Cache HIT (exists): {}", name);
+                            }
+                        }
+
+                        if should_fetch {
+                            info!("🌍 Fetching remote asset: {} -> {}", url, name);
+                            match reqwest::get(url).await {
+                                Ok(resp) => {
+                                    if resp.status().is_success() {
+                                        if let Ok(bytes) = resp.bytes().await {
+                                            let _ = fs::write(&path, bytes);
+                                        } else { error!("Failed to read bytes from {}", url); }
+                                    } else { error!("Remote fetch failed for {}: Status {}", url, resp.status()); }
+                                },
+                                Err(e) => error!("Network error fetching {}: {}", url, e),
+                            }
+                        } else {
+                            // Cache HIT: File exists in persistent worker directory
+                            info!("📦 Remote asset cache HIT: {}", name);
                         }
                     },
                     WsFileContent::HashRef { value, .. } => {

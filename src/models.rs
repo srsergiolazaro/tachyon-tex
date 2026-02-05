@@ -8,6 +8,14 @@ pub enum WsFileContent {
     Raw(String),
     /// Explicit base64-encoded binary content (for images, fonts, etc.)
     Binary { base64: String },
+    /// Remote URL to fetch content from (downloaded once and cached)
+    Url { 
+        url: String,
+        #[serde(default)]
+        no_cache: bool,
+        /// Optional xxh64 hash (hex) to verify cache integrity
+        hash: Option<String>,
+    },
     /// Reference to previously uploaded blob by hash
     HashRef { #[serde(rename = "type")] content_type: String, value: String },
 }
