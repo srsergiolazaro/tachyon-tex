@@ -21,11 +21,9 @@ use rmcp::{
     tool, tool_handler, tool_router,
 };
 use serde::Deserialize;
-use tectonic::driver::{ProcessingSessionBuilder, OutputFormat, PassSetting};
-
 use crate::models::*;
 use crate::services::*;
-use crate::handlers::CapturingStatusBackend;
+use crate::compiler::Compiler;
 
 #[derive(Deserialize, schemars::JsonSchema)]
 pub struct CompileArgs {
@@ -110,35 +108,12 @@ impl TachyonMcpServer {
         info!("MCP Compiling {:?} ({} files)...", main_tex_path, files_received);
         let start = Instant::now();
 
-        let (result, logs) = {
-            let mut status = CapturingStatusBackend::new();
-            let bundle_res = self.state.config.default_bundle(false, &mut status);
-            
-            match bundle_res {
-                Ok(bundle) => {
-                    let mut sb = ProcessingSessionBuilder::default();
-                    sb.bundle(bundle)
-                        .primary_input_path(&main_tex_path)
-                        .tex_input_name(&main_tex_name)
-                        .format_name("latex")
-                        .format_cache_path(&self.state.format_cache_path)
-                        .output_dir(temp_dir.path())
-                        .print_stdout(false)
-                        .output_format(OutputFormat::Pdf)
-                        .pass(PassSetting::Default);
-
-                    let res = (|| -> Result<Vec<u8>, String> {
-                        let mut sess = sb.create(&mut status).map_err(|e| e.to_string())?;
-                        sess.run(&mut status).map_err(|e| e.to_string())?;
-                        let pdf_name = main_tex_path.file_stem().unwrap().to_str().unwrap();
-                        let pdf_path = temp_dir.path().join(format!("{}.pdf", pdf_name));
-                        fs::read(&pdf_path).map_err(|e| e.to_string())
-                    })();
-                    (res, status.get_logs())
-                },
-                Err(e) => (Err(format!("Bundle error: {}", e)), status.get_logs())
-            }
-        };
+        let (result, logs) = Compiler::compile_file(
+            &main_tex_path,
+            temp_dir.path(),
+            &self.state.format_cache_path,
+            &self.state.config
+        );
 
         let compile_time_ms = start.elapsed().as_millis() as u64;
 

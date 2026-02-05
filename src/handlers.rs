@@ -13,11 +13,9 @@ use base64::{Engine as _, engine::general_purpose};
 use xxhash_rust::xxh64::xxh64;
 use regex::Regex;
 
-use tectonic::driver::{ProcessingSessionBuilder, OutputFormat, PassSetting};
-use tectonic::status::{StatusBackend, MessageKind, NoopStatusBackend};
-
 use crate::models::*;
 use crate::services::*;
+use crate::compiler::{Compiler, CapturingStatusBackend};
 
 // ============================================================================
 // Handlers
@@ -125,36 +123,12 @@ pub async fn compile_handler(
     info!("Compiling {:?} ({} files, HMR: {})...", main_tex_path, files_received, hmr_status);
     let start = Instant::now();
 
-    let (result, logs) = {
-        let mut status = CapturingStatusBackend::new();
-        let bundle_res = state.config.default_bundle(false, &mut status);
-        
-        match bundle_res {
-            Ok(bundle) => {
-                let mut sb = ProcessingSessionBuilder::default();
-                sb.bundle(bundle)
-                    .primary_input_path(&main_tex_path)
-                    .tex_input_name(&main_tex_path.file_name().unwrap_or_default().to_string_lossy())
-                    .format_name("latex")
-                    .format_cache_path(&state.format_cache_path)
-                    .output_dir(temp_dir.path())
-                    .print_stdout(false)
-                    .output_format(OutputFormat::Pdf)
-                    .pass(PassSetting::Default);
-
-                let res = (|| -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-                    let mut sess = sb.create(&mut status).map_err(|e| e.to_string())?;
-                    sess.run(&mut status).map_err(|e| e.to_string())?;
-                    let pdf_name = main_tex_path.file_stem().expect("stem").to_str().unwrap();
-                    let pdf_path = temp_dir.path().join(format!("{}.pdf", pdf_name));
-                    Ok(fs::read(&pdf_path)?)
-                })().map_err(|e| e.to_string());
-                
-                (res, status.get_logs())
-            },
-            Err(e) => (Err(format!("Bundle error: {}", e)), status.get_logs())
-        }
-    };
+    let (result, logs) = Compiler::compile_file(
+        &main_tex_path,
+        temp_dir.path(),
+        &state.format_cache_path,
+        &state.config
+    );
 
     let compile_time_ms = start.elapsed().as_millis() as u64;
 
@@ -240,35 +214,12 @@ pub async fn handle_socket(mut socket: WebSocket, state: AppState) {
             let main_path = temp_dir.path().join(&main_tex);
             let start = Instant::now();
 
-            let (result, logs) = {
-                let mut status = CapturingStatusBackend::new();
-                let bundle_res = state.config.default_bundle(false, &mut status);
-                
-                match bundle_res {
-                    Ok(bundle) => {
-                        let mut sb = ProcessingSessionBuilder::default();
-                        sb.bundle(bundle)
-                            .primary_input_path(&main_path)
-                            .tex_input_name(&main_tex)
-                            .format_name("latex")
-                            .format_cache_path(&state.format_cache_path)
-                            .output_dir(temp_dir.path())
-                            .print_stdout(false)
-                            .output_format(OutputFormat::Pdf)
-                            .pass(PassSetting::Default);
-
-                        let res = (|| -> Result<Vec<u8>, String> {
-                            let mut sess = sb.create(&mut status).map_err(|e| e.to_string())?;
-                            sess.run(&mut status).map_err(|e| e.to_string())?;
-                            let pdf_name = main_path.file_stem().unwrap().to_str().unwrap();
-                            let pdf_path = temp_dir.path().join(format!("{}.pdf", pdf_name));
-                            fs::read(&pdf_path).map_err(|e| e.to_string())
-                        })();
-                        (res, status.get_logs())
-                    },
-                    Err(e) => (Err(format!("Bundle error: {}", e)), status.get_logs())
-                }
-            };
+            let (result, logs) = Compiler::compile_file(
+                &main_path,
+                temp_dir.path(),
+                &state.format_cache_path,
+                &state.config
+            );
 
             match result {
                 Ok(pdf_data) => {
@@ -300,39 +251,6 @@ pub async fn handle_socket(mut socket: WebSocket, state: AppState) {
 // Status Backend
 // ============================================================================
 
-pub struct CapturingStatusBackend {
-    logs: Vec<String>,
-}
-
-impl CapturingStatusBackend {
-    pub fn new() -> Self {
-        Self { logs: Vec::new() }
-    }
-    
-    pub fn get_logs(&self) -> String {
-        self.logs.join("\n")
-    }
-}
-
-impl StatusBackend for CapturingStatusBackend {
-    fn report(&mut self, kind: MessageKind, args: std::fmt::Arguments<'_>, err: Option<&anyhow::Error>) {
-        let prefix = match kind {
-            MessageKind::Note => "Note",
-            MessageKind::Warning => "Warning",
-            MessageKind::Error => "Error",
-        };
-        self.logs.push(format!("[{}] {}", prefix, args));
-        if let Some(e) = err {
-            self.logs.push(format!("Caused by: {}", e));
-        }
-    }
-
-    fn dump_error_logs(&mut self, output: &[u8]) {
-        if let Ok(s) = std::str::from_utf8(output) {
-            self.logs.push(s.to_string());
-        }
-    }
-}
 
 fn parse_log_errors(log: &str) -> Vec<serde_json::Value> {
     let mut errors = Vec::new();

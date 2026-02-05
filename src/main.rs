@@ -16,12 +16,41 @@ mod models;
 mod services;
 mod handlers;
 mod mcp;
+pub mod compiler;
+pub mod healer;
 
 use crate::models::*;
 use crate::services::*;
 use crate::handlers::*;
 
 const CACHE_CLEANUP_INTERVAL_SECS: u64 = 3600; // 1 hour
+
+use clap::{Parser, Subcommand};
+use crate::compiler::Compiler;
+use std::path::PathBuf;
+
+#[derive(Parser)]
+#[command(name = "tachyon-tex")]
+#[command(about = "Tachyon-Tex High-Performance LaTeX Engine")]
+struct Cli {
+    #[command(subcommand)]
+    command: Option<Commands>,
+
+    /// Run in warmup mode (exit after caching resources)
+    #[arg(long, global = true)]
+    warmup: bool,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Start the backend server (default)
+    Serve,
+    /// Compile a LaTeX file directly
+    Compile {
+        /// Input file path
+        file: PathBuf,
+    },
+}
 
 #[tokio::main]
 async fn main() {
@@ -31,27 +60,57 @@ async fn main() {
         .finish();
     tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
 
-    info!("🌌 Tachyon-Tex Orbital Engine initializing...");
+    let cli = Cli::parse();
 
-    let args: Vec<String> = std::env::args().collect();
-    let is_warmup = args.contains(&"--warmup".to_string());
-
-    // 2. Initialize State and Services
-    let pdf_cache_enabled = std::env::var("PDF_CACHE_ENABLED").unwrap_or_else(|_| "true".to_string()) == "true";
-    let compilation_cache = CompilationCache::new(pdf_cache_enabled);
-    let webhooks = Arc::new(RwLock::new(Vec::<WebhookSubscription>::new()));
-    let format_cache = FormatCache::new();
-    let blob_store = BlobStore::new();
+    if cli.warmup {
+        info!("🌌 Tachyon-Tex starting in WARMUP mode...");
+    } else {
+        info!("🌌 Tachyon-Tex Orbital Engine initializing...");
+    }
 
     // Initialize Tectonic Config once
     let config = tectonic::config::PersistentConfig::open(false).expect("Failed to open Tectonic config");
     let format_cache_path = config.format_cache_path().expect("Failed to get format cache path");
     info!("🏗️ Tectonic Engine Configured (FormatCache: {})", format_cache_path.display());
-    
-    if is_warmup {
+
+    if cli.warmup {
         info!("✨ Warmup complete. Tectonic resources cached. Exiting.");
         return;
     }
+
+    match cli.command.unwrap_or(Commands::Serve) {
+        Commands::Serve => {
+             run_server(config, format_cache_path).await;
+        }
+        Commands::Compile { file } => {
+            info!("📄 Compiling file: {:?}", file);
+            let output_dir = std::env::current_dir().unwrap();
+            let (result, logs) = Compiler::compile_file(
+                &file,
+                &output_dir,
+                &format_cache_path,
+                &config
+            );
+            
+            match result {
+                Ok(_) => info!("✅ Compilation successful!"),
+                Err(e) => {
+                    tracing::error!("❌ Compilation failed: {}", e);
+                    println!("{}", logs);
+                    std::process::exit(1);
+                }
+            }
+        }
+    }
+}
+
+async fn run_server(config: tectonic::config::PersistentConfig, format_cache_path: PathBuf) {
+     // 2. Initialize State and Services
+    let pdf_cache_enabled = std::env::var("PDF_CACHE_ENABLED").unwrap_or_else(|_| "true".to_string()) == "true";
+    let compilation_cache = CompilationCache::new(pdf_cache_enabled);
+    let webhooks = Arc::new(RwLock::new(Vec::<WebhookSubscription>::new()));
+    let format_cache = FormatCache::new();
+    let blob_store = BlobStore::new();
 
     let state = AppState { 
         compilation_cache: compilation_cache.clone(),
