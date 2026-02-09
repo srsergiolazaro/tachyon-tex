@@ -7,7 +7,7 @@ license-file = "LICENSE"
 [dependencies]
 axum = { version = "0.7", features = ["multipart", "ws"] }
 tokio = { version = "1", features = ["full"] }
-tectonic = { version = "0.15", features = ["external-harfbuzz"] }
+tectonic = { version = "0.15", default-features = false }
 tectonic_bundles = "0.2"
 tower-http = { version = "0.5", features = ["limit", "cors", "compression-zstd", "fs"] }
 serde = { version = "1.0", features = ["derive"] }
@@ -30,8 +30,25 @@ rmcp-macros = { path = "./rust-sdk/crates/rmcp-macros" }
 schemars = "0.8"
 tokio-util = "0.7"
 
+[features]
+default = ["external-harfbuzz"]
+external-harfbuzz = ["tectonic/external-harfbuzz"]
+
 [profile.release]
 opt-level = 3       # Max performance (Speed)
 lto = true          # Enable Link Time Optimization (Speed + Size)
 codegen-units = 1   # More optimizations (Speed + Size)
 strip = true        # Automatically strip symbols (Size)
+
+[package.metadata.vcpkg]
+git = "https://github.com/microsoft/vcpkg"
+rev = "a62ce77d56ee07513b4b67de1ec2daeaebfae51a"
+overlay-triplets-path = "tectonic-source/dist/vcpkg-triplets"
+
+[package.metadata.vcpkg.target]
+x86_64-pc-windows-msvc = { triplet = "x64-windows-static-release", install = [
+    "fontconfig",
+    "freetype",
+    "harfbuzz[graphite2]",
+    "icu",
+] }

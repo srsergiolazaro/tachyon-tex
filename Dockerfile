@@ -32,7 +32,7 @@ RUN cargo install tectonic --version 0.15.0 --features external-harfbuzz
 
 # 3. Build the server
 COPY . .
-RUN touch src/main.rs && cargo build --release
+RUN touch src/main.rs && cargo build --release --features external-harfbuzz
 
 # 4. Warmup
 RUN mkdir -p /root/.cache/Tectonic && \

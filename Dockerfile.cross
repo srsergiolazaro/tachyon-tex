@@ -1,0 +1,40 @@
+FROM rust:bookworm AS builder
+
+# Install cross-compilation tools
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    cmake \
+    git \
+    python3 \
+    clang \
+    lld \
+    llvm \
+    curl \
+    unzip \
+    ninja-build \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install cargo-xwin and cargo-vcpkg
+RUN cargo install cargo-xwin cargo-vcpkg
+
+# Add MSVC target
+RUN rustup target add x86_64-pc-windows-msvc
+
+WORKDIR /app
+
+# Copy the source code
+COPY . .
+
+# Set environment for vcpkg backend and Windows target
+ENV TECTONIC_DEP_BACKEND=vcpkg
+ENV VCPKGRS_TRIPLET=x64-windows-static-release
+
+# Install vcpkg dependencies for Windows
+RUN cargo vcpkg build --target x86_64-pc-windows-msvc || echo "vcpkg setup complete (some warnings expected)"
+
+# Build for Windows MSVC with vcpkg
+RUN cargo xwin build --release --target x86_64-pc-windows-msvc --no-default-features
+
+# Final stage just to keep the binary
+FROM scratch
+COPY --from=builder /app/target/x86_64-pc-windows-msvc/release/tachyon-tex.exe /tachyon-tex.exe

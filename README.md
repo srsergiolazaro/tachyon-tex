@@ -7,14 +7,16 @@
 
 ## ⚡ Quick Start
 
-```bash
 # Pull and run (that's it!)
 docker pull srsergio/tachyon-tex
 docker run -p 8080:8080 srsergio/tachyon-tex
 
+# To generate a Windows .exe via Docker
+docker build -f Dockerfile.cross -t tachyon-tex-cross .
+# Extract the binary (or use run_local.ps1 -Windows)
+
 # Or use Docker Compose (recommended for RAM-disk optimization)
 docker-compose up -d
-```
 
 ## 📊 Performance Benchmarks
 

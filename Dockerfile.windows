@@ -1,0 +1,49 @@
+# --- STAGE 1: Builder ---
+FROM mcr.microsoft.com/windows/servercore:ltsc2022 AS builder
+
+# Install Rust
+RUN powershell -Command \
+    Invoke-WebRequest -Uri https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe -OutFile rustup-init.exe; \
+    .\rustup-init.exe -y --default-toolchain stable; \
+    Remove-Item rustup-init.exe
+
+# Set path for Cargo
+USER ContainerAdministrator
+RUN setx /M PATH "%PATH%;C:\Users\ContainerAdministrator\.cargo\bin"
+
+# Install Git (needed for some dependencies or tectonic)
+RUN powershell -Command \
+    Invoke-WebRequest -Uri https://github.com/git-for-windows/git/releases/download/v2.43.0.windows.1/Git-2.43.0-64-bit.exe -OutFile git-install.exe; \
+    Start-Process -FilePath .\git-install.exe -ArgumentList '/VERYSILENT /NORESTART' -Wait; \
+    Remove-Item git-install.exe
+
+WORKDIR C:\app
+
+# Copy the source code
+COPY . .
+
+# Build the server
+# Note: Tectonic on Windows might need additional setup if not using the bundled version
+# For simplicity, we build our server which uses tectonic as a crate.
+RUN cargo build --release
+
+# --- STAGE 2: Final Image ---
+FROM mcr.microsoft.com/windows/nanoserver:ltsc2022
+
+WORKDIR C:\app
+
+# Copy the binary from the builder
+COPY --from=builder C:\app\target\release\tachyon-tex.exe C:\app\tachyon-tex.exe
+
+# Copy public static files
+COPY --from=builder C:\app\public C:\app\public
+
+# Expose the server port
+EXPOSE 8080
+
+# Environment variables
+ENV RUST_LOG=info
+ENV PDF_CACHE_ENABLED=true
+
+# Start the server
+ENTRYPOINT ["C:\\app\\tachyon-tex.exe"]
